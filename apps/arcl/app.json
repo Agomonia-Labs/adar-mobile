@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "ADAR ARCL",
+    "slug": "adar-arcl",
+    "scheme": "adararcl",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#0c4d34"
+    },
+    "ios": {
+      "bundleIdentifier": "com.agomoniai.adararcl",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.agomoniai.adararcl",
+      "adaptiveIcon": {
+        "backgroundColor": "#0c4d34"
+      }
+    }
+  }
+}

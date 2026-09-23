@@ -1,0 +1,13 @@
+{
+  "name": "adar-mobile",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "arcl": "npm run start --workspace apps/arcl",
+    "geetabitan": "npm run start --workspace apps/geetabitan",
+    "frontdesk": "npm run start --workspace apps/frontdesk"
+  }
+}

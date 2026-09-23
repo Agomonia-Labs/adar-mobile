@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "ADAR Front Desk",
+    "slug": "adar-frontdesk",
+    "scheme": "adarfrontdesk",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#1c7293"
+    },
+    "ios": {
+      "bundleIdentifier": "com.agomoniai.adarfrontdesk",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.agomoniai.adarfrontdesk",
+      "adaptiveIcon": {
+        "backgroundColor": "#1c7293"
+      }
+    }
+  }
+}

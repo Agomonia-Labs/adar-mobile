@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "ADAR Geetabitan",
+    "slug": "adar-geetabitan",
+    "scheme": "adargeetabitan",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "backgroundColor": "#7a1f33"
+    },
+    "ios": {
+      "bundleIdentifier": "com.agomoniai.adargeetabitan",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.agomoniai.adargeetabitan",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#7a1f33"
+      }
+    }
+  }
+}
