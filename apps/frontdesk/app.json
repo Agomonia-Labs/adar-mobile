@@ -11,12 +11,20 @@
     },
     "ios": {
       "bundleIdentifier": "com.agomoniai.adarfrontdesk",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.agomoniai.adarfrontdesk",
       "adaptiveIcon": {
         "backgroundColor": "#1c7293"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e1c3e67a-d0d6-4169-9ecc-6de47810202e"
       }
     }
   }

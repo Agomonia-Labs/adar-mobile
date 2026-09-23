@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@adar/shared-auth": "*",
+    "@adar/shared-chat": "*",
     "axios": "^1.7.9",
     "expo": "~51.0.0",
     "expo-secure-store": "~13.0.2",

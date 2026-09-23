@@ -12,13 +12,21 @@
     },
     "ios": {
       "bundleIdentifier": "com.agomoniai.adargeetabitan",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.agomoniai.adargeetabitan",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#7a1f33"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "950d38fd-83ea-443b-b0ff-88131d4cb258"
       }
     }
   }

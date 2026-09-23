@@ -11,7 +11,10 @@
     },
     "ios": {
       "bundleIdentifier": "com.agomoniai.adararcl",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.agomoniai.adararcl",

@@ -15,3 +15,9 @@ play-store-service-account.json
 *.mobileprovision
 
 .idea/
+
+# Local eas build --local output (regenerable, not source)
+build-*.apk
+build-*.tar.gz
+build-*.app
+build-*.ipa
