@@ -2,7 +2,7 @@
   "name": "adar-geetabitan",
   "version": "1.0.0",
   "private": true,
-  "main": "expo/AppEntry.js",
+  "main": "index.js",
   "scripts": {
     "start": "expo start",
     "ios": "expo start --ios",
