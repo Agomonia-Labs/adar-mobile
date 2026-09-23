@@ -7,3 +7,9 @@ web-build/
 ios/
 android/
 .env*.local
+
+# EAS / store credentials — never commit these
+play-store-service-account.json
+*.p8
+*.p12
+*.mobileprovision
