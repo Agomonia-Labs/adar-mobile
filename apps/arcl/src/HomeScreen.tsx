@@ -77,7 +77,7 @@ export function HomeScreen() {
       )}
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>Powered by Agomonia Labs</Text>
+        <Text style={styles.footerText}>Powered by ADAR</Text>
         <Text style={styles.footerText}>© 2026 Agomonia Labs. All rights reserved.</Text>
       </View>
     </SafeAreaView>
