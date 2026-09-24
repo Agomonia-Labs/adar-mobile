@@ -54,11 +54,22 @@ function markdownStyles(theme: ChatTheme) {
     code_block: { backgroundColor: theme.background, borderRadius: 8, padding: 10 },
     fence: { backgroundColor: theme.background, borderRadius: 8, padding: 10 },
     link: { color: theme.brandColor },
-    table: { borderWidth: 1, borderColor: theme.border, borderRadius: 8, marginBottom: 8 },
+    table: { borderWidth: 1, borderColor: theme.border, borderRadius: 8, marginBottom: 8, overflow: 'hidden' },
     thead: { backgroundColor: theme.background },
-    th: { padding: 8, fontWeight: '700', color: theme.textPrimary, borderColor: theme.border },
-    td: { padding: 8, color: theme.textPrimary, borderColor: theme.border },
-    tr: { borderBottomWidth: 1, borderColor: theme.border },
+    th: {
+      padding: 8,
+      fontWeight: '700',
+      color: theme.textPrimary,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+    },
+    td: {
+      padding: 8,
+      color: theme.textPrimary,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+    },
+    tr: { flexDirection: 'row', borderBottomWidth: 0 },
   });
 }
 
