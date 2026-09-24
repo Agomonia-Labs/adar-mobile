@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '@adar/shared-auth';
 import { ChatScreen } from '@adar/shared-chat';
 
@@ -15,11 +15,23 @@ const ARCL_SUGGESTED_QUESTIONS = [
   "Show Agomoni Tigers' schedule.",
 ];
 
+const SUPPORT_EMAIL = 'admin@agomoniai.com';
+
 type Tab = 'home' | 'ask';
 
 export function HomeScreen() {
   const { session, signOut, tenant } = useAuth();
   const [tab, setTab] = useState<Tab>('home');
+
+  function requestAccountDeletion() {
+    const subject = encodeURIComponent('ADAR ARCL account deletion request');
+    const body = encodeURIComponent(
+      `Please delete my ADAR ARCL account.\n\nTeam/organization: ${session?.teamName || ''}\nTeam ID: ${
+        session?.teamId || ''
+      }\n\n(Sent from the ADAR ARCL app)`
+    );
+    Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`);
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: '#f7f8fa' }]}>
@@ -51,6 +63,9 @@ export function HomeScreen() {
             onPress={() => signOut()}
           >
             <Text style={styles.buttonText}>Sign out</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.deleteLink} onPress={requestAccountDeletion}>
+            <Text style={styles.deleteLinkText}>Delete my account</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -84,4 +99,6 @@ const styles = StyleSheet.create({
   },
   button: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
   buttonText: { color: '#fff', fontWeight: '700' },
+  deleteLink: { marginTop: 16, paddingVertical: 8 },
+  deleteLinkText: { fontSize: 13, color: '#9aa2ad', textDecorationLine: 'underline' },
 });
