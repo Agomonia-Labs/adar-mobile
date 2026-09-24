@@ -7,6 +7,8 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
       "backgroundColor": "#0c4d34"
     },
     "ios": {
@@ -19,13 +21,15 @@
     "android": {
       "package": "com.agomoniai.adararcl",
       "adaptiveIcon": {
-        "backgroundColor": "#0c4d34"
+        "backgroundColor": "#0c4d34",
+        "foregroundImage": "./assets/adaptive-icon.png"
       }
     },
     "extra": {
       "eas": {
         "projectId": "5340b91e-8c21-4e47-bd4d-9d799ff8238f"
       }
-    }
+    },
+    "icon": "./assets/icon.png"
   }
 }

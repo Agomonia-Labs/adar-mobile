@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import {
   FlatList,
+  Image,
+  ImageSourcePropType,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -26,6 +28,8 @@ export interface ChatViewProps {
   placeholder: string;
   /** Optional starter questions shown as tappable chips when empty. */
   suggestedQuestions?: string[];
+  /** Optional logo shown above the placeholder text in the empty state. */
+  logo?: ImageSourcePropType;
 }
 
 // adar-core's assistant replies are Markdown -- the web app renders them
@@ -64,7 +68,7 @@ function markdownStyles(theme: ChatTheme) {
  * GuestChatScreen (no-login, useGuestChat()) so the two only differ in
  * which controller feeds them, never in how the conversation renders.
  */
-export function ChatView({ messages, sending, error, send, theme, placeholder, suggestedQuestions }: ChatViewProps) {
+export function ChatView({ messages, sending, error, send, theme, placeholder, suggestedQuestions, logo }: ChatViewProps) {
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const mdStyles = markdownStyles(theme);
@@ -83,6 +87,7 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
     >
       {messages.length === 0 ? (
         <View style={styles.emptyState}>
+          {logo ? <Image source={logo} style={styles.logo} resizeMode="contain" /> : null}
           <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>{placeholder}</Text>
           {(suggestedQuestions || []).map((q) => (
             <TouchableOpacity
@@ -163,6 +168,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16, textAlign: 'center' },
+  logo: { width: 64, height: 64, borderRadius: 14, marginBottom: 16 },
   chip: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginBottom: 8 },
   list: { padding: 16 },
   bubble: { borderRadius: 16, padding: 12, marginBottom: 10, maxWidth: '92%' },

@@ -1,4 +1,5 @@
 import React from 'react';
+import { ImageSourcePropType } from 'react-native';
 import { getAuthTheme, useAuth } from '@adar/shared-auth';
 import { ChatView } from './ChatView';
 import { useChat } from './useChat';
@@ -8,6 +9,8 @@ export interface ChatScreenProps {
   placeholder?: string;
   /** Optional starter questions shown as tappable chips when the conversation is empty. */
   suggestedQuestions?: string[];
+  /** Optional logo shown above the placeholder text in the empty state. */
+  logo?: ImageSourcePropType;
 }
 
 /**
@@ -17,7 +20,7 @@ export interface ChatScreenProps {
  * authenticated POST /api/chat. For the no-login "guest" experience, see
  * GuestChatScreen instead.
  */
-export function ChatScreen({ placeholder, suggestedQuestions }: ChatScreenProps) {
+export function ChatScreen({ placeholder, suggestedQuestions, logo }: ChatScreenProps) {
   const { tenant } = useAuth();
   const theme = getAuthTheme(tenant);
   const chat = useChat();
@@ -28,6 +31,7 @@ export function ChatScreen({ placeholder, suggestedQuestions }: ChatScreenProps)
       theme={theme}
       placeholder={placeholder || `Ask ${tenant.displayName}`}
       suggestedQuestions={suggestedQuestions}
+      logo={logo}
     />
   );
 }

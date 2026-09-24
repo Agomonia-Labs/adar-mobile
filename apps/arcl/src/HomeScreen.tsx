@@ -3,10 +3,16 @@ import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-na
 import { useAuth } from '@adar/shared-auth';
 import { ChatScreen } from '@adar/shared-chat';
 
+// Same wording/questions as the public guest experience (arcl.js /
+// arcl_guest.py EXAMPLE_QUESTIONS) for consistency between guest mode
+// and signed-in mode.
+const ARCL_WELCOME_MESSAGE =
+  'Welcome to the ADAR ARCL Cricket Assistant. Ask me about ARCL rules, teams, players, standings, schedules, results, or scorecards.';
 const ARCL_SUGGESTED_QUESTIONS = [
-  "What's my team's schedule?",
-  'Show current standings',
-  'What are the wide ball rules?',
+  "What is the wide-ball rule in the men's ARCL league?",
+  'Show the current Division H standings.',
+  'Who are the top five batsmen in Division H?',
+  "Show Agomoni Tigers' schedule.",
 ];
 
 type Tab = 'home' | 'ask';
@@ -49,8 +55,9 @@ export function HomeScreen() {
         </View>
       ) : (
         <ChatScreen
-          placeholder="Ask ADAR ARCL"
+          placeholder={ARCL_WELCOME_MESSAGE}
           suggestedQuestions={ARCL_SUGGESTED_QUESTIONS}
+          logo={require('../assets/icon.png')}
         />
       )}
     </SafeAreaView>

@@ -13,6 +13,11 @@ const ARCL_GUEST_QUESTIONS = [
   "Show Agomoni Tigers' schedule.",
 ];
 
+// Verbatim from adar-web/arcl.js's own welcome bubble -- same wording the
+// live https://labs.agomoniai.com/arcl experience shows on load.
+const ARCL_WELCOME_MESSAGE =
+  'Welcome to the ADAR ARCL Cricket Assistant. Ask me about ARCL rules, teams, players, standings, schedules, results, or scorecards.';
+
 /**
  * The no-login landing experience -- same guest flow that backs
  * https://labs.agomoniai.com/arcl, no email/password needed. This is
@@ -32,8 +37,9 @@ export function GuestHomeScreen({ onSignIn }: { onSignIn: () => void }) {
       </View>
       <GuestChatScreen
         domain="arcl"
-        placeholder={`Ask ${tenant.displayName}`}
+        placeholder={ARCL_WELCOME_MESSAGE}
         suggestedQuestions={ARCL_GUEST_QUESTIONS}
+        logo={require('../assets/icon.png')}
       />
     </SafeAreaView>
   );

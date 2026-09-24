@@ -1,4 +1,5 @@
 import React from 'react';
+import { ImageSourcePropType } from 'react-native';
 import { getAuthTheme, useAuth } from '@adar/shared-auth';
 import { ChatView } from './ChatView';
 import { useGuestChat } from './useGuestChat';
@@ -11,6 +12,8 @@ export interface GuestChatScreenProps {
   placeholder?: string;
   /** Optional starter questions shown as tappable chips when the conversation is empty. */
   suggestedQuestions?: string[];
+  /** Optional logo shown above the placeholder text in the empty state. */
+  logo?: ImageSourcePropType;
 }
 
 /**
@@ -24,7 +27,7 @@ export interface GuestChatScreenProps {
  * and the base HTTP client -- those are available whether or not anyone
  * is actually signed in (AuthProvider always provides them).
  */
-export function GuestChatScreen({ domain, placeholder, suggestedQuestions }: GuestChatScreenProps) {
+export function GuestChatScreen({ domain, placeholder, suggestedQuestions, logo }: GuestChatScreenProps) {
   const { tenant, client } = useAuth();
   const theme = getAuthTheme(tenant);
   const chat = useGuestChat(client, domain);
@@ -35,6 +38,7 @@ export function GuestChatScreen({ domain, placeholder, suggestedQuestions }: Gue
       theme={theme}
       placeholder={placeholder || `Ask ${tenant.displayName}`}
       suggestedQuestions={suggestedQuestions}
+      logo={logo}
     />
   );
 }

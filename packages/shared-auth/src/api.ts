@@ -9,7 +9,11 @@ export function createAuthClient(tenant: AuthTenantConfig): AxiosInstance {
   const client = axios.create({
     baseURL: tenant.apiUrl,
     headers: tenant.apiKey ? { 'X-API-Key': tenant.apiKey } : undefined,
-    timeout: 20000,
+    // 2 minutes -- ARCL's ADK orchestration can take a while on
+    // complex queries (multi-tool lookups, standings/stats joins), and
+    // the default 20s was cutting those off client-side before the
+    // backend even finished.
+    timeout: 120000,
   });
   return client;
 }
