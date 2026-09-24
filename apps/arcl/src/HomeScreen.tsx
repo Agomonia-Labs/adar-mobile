@@ -46,7 +46,7 @@ export function HomeScreen() {
           style={[styles.tab, tab === 'ask' && { backgroundColor: tenant.brandColor }]}
           onPress={() => setTab('ask')}
         >
-          <Text style={[styles.tabText, tab === 'ask' && styles.tabTextActive]}>Ask ADAR</Text>
+          <Text style={[styles.tabText, tab === 'ask' && styles.tabTextActive]}>Ask ADAR ARCL</Text>
         </TouchableOpacity>
       </View>
 
@@ -75,6 +75,11 @@ export function HomeScreen() {
           logo={require('../assets/logo-mark.png')}
         />
       )}
+
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>Powered by Agomonia Labs</Text>
+        <Text style={styles.footerText}>© 2026 Agomonia Labs. All rights reserved.</Text>
+      </View>
     </SafeAreaView>
   );
 }
@@ -101,4 +106,6 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', fontWeight: '700' },
   deleteLink: { marginTop: 16, paddingVertical: 8 },
   deleteLinkText: { fontSize: 13, color: '#9aa2ad', textDecorationLine: 'underline' },
+  footer: { alignItems: 'center', paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#e5e7eb', backgroundColor: '#f7f8fa' },
+  footerText: { fontSize: 10.5, color: '#9aa2ad', lineHeight: 14 },
 });

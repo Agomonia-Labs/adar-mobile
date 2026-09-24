@@ -44,6 +44,10 @@ export function GuestHomeScreen({ onSignIn }: { onSignIn: () => void }) {
         suggestedQuestions={ARCL_GUEST_QUESTIONS}
         logo={require('../assets/logo-mark.png')}
       />
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>Powered by Agomonia Labs</Text>
+        <Text style={styles.footerText}>© 2026 Agomonia Labs. All rights reserved.</Text>
+      </View>
     </SafeAreaView>
   );
 }
@@ -62,4 +66,6 @@ const styles = StyleSheet.create({
   brandLogo: { width: 34, height: 34, borderRadius: 7, marginRight: 8 },
   brandName: { fontSize: 15, fontWeight: '700' },
   signIn: { fontSize: 14, fontWeight: '700' },
+  footer: { alignItems: 'center', paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#e5e7eb' },
+  footerText: { fontSize: 10.5, color: '#9aa2ad', lineHeight: 14 },
 });
