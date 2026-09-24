@@ -31,7 +31,7 @@ export function GuestHomeScreen({ onSignIn }: { onSignIn: () => void }) {
     <SafeAreaView style={styles.container}>
       <View style={[styles.header, { borderColor: tenant.brandColor }]}>
         <View style={styles.brand}>
-          <Image source={require('../assets/icon.png')} style={styles.brandLogo} resizeMode="contain" />
+          <Image source={require('../assets/logo-mark.png')} style={styles.brandLogo} resizeMode="contain" />
           <Text style={[styles.brandName, { color: tenant.brandColor }]}>{tenant.displayName}</Text>
         </View>
         <TouchableOpacity onPress={onSignIn}>
@@ -42,7 +42,7 @@ export function GuestHomeScreen({ onSignIn }: { onSignIn: () => void }) {
         domain="arcl"
         placeholder={ARCL_WELCOME_MESSAGE}
         suggestedQuestions={ARCL_GUEST_QUESTIONS}
-        logo={require('../assets/icon.png')}
+        logo={require('../assets/logo-mark.png')}
       />
     </SafeAreaView>
   );
@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   brand: { flexDirection: 'row', alignItems: 'center' },
-  brandLogo: { width: 28, height: 28, borderRadius: 6, marginRight: 8 },
+  brandLogo: { width: 34, height: 34, borderRadius: 7, marginRight: 8 },
   brandName: { fontSize: 15, fontWeight: '700' },
   signIn: { fontSize: 14, fontWeight: '700' },
 });

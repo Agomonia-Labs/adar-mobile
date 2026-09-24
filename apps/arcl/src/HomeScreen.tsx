@@ -57,7 +57,7 @@ export function HomeScreen() {
         <ChatScreen
           placeholder={ARCL_WELCOME_MESSAGE}
           suggestedQuestions={ARCL_SUGGESTED_QUESTIONS}
-          logo={require('../assets/icon.png')}
+          logo={require('../assets/logo-mark.png')}
         />
       )}
     </SafeAreaView>
