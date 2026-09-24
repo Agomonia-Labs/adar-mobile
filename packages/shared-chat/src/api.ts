@@ -55,9 +55,37 @@ export async function transcribeSpeech(
   return data;
 }
 
+// Surfaces the REAL cause in the app's error banner instead of a bare
+// fallback -- a wrong/expected-shape error swallowed down to "Something
+// went wrong" is much harder to debug on a device than reading it off
+// the screen directly. Also logs the raw error so `adb logcat` (filtered
+// to the app's own PID, tag ReactNativeJS) shows it too.
 export function extractChatErrorMessage(err: unknown, fallback: string): string {
-  const anyErr = err as { response?: { data?: { detail?: string } } };
-  return anyErr?.response?.data?.detail || fallback;
+  console.error('[shared-chat] request failed:', err);
+  const anyErr = err as {
+    response?: { status?: number; data?: { detail?: string } | string };
+    request?: unknown;
+    message?: string;
+  };
+
+  const data = anyErr?.response?.data;
+  const detail = typeof data === 'string' ? data : data?.detail;
+  if (detail) return detail;
+
+  // Got an HTTP response, but not the {detail: "..."} shape we expected
+  // (e.g. a proxy/gateway error page, a 500 with no JSON body).
+  if (anyErr?.response?.status) {
+    return `Request failed (HTTP ${anyErr.response.status})${anyErr.message ? `: ${anyErr.message}` : ''}`;
+  }
+
+  // Request was sent but never got a response at all -- DNS failure, no
+  // connectivity, timeout, TLS error, etc. (axios sets `request` but not
+  // `response` in this case).
+  if (anyErr?.request) {
+    return `No response from server${anyErr.message ? ` (${anyErr.message})` : ''}`;
+  }
+
+  return anyErr?.message || fallback;
 }
 
 // ── Guest ("try without an account") flow ──────────────────────────────────

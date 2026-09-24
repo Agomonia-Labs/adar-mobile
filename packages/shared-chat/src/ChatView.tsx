@@ -3,12 +3,14 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import Markdown from 'react-native-markdown-display';
 import type { getAuthTheme } from '@adar/shared-auth';
 import type { ChatMessage } from './types';
 
@@ -26,6 +28,36 @@ export interface ChatViewProps {
   suggestedQuestions?: string[];
 }
 
+// adar-core's assistant replies are Markdown -- the web app renders them
+// with react-markdown + remark-gfm (see adar-core/ui/src/App.jsx), which
+// is why responses come back with **bold**, tables, etc. rather than
+// plain text. This mirrors that on mobile via react-native-markdown-display
+// (the closest equivalent with built-in GFM table support), styled to
+// match the tenant theme instead of that library's defaults.
+function markdownStyles(theme: ChatTheme) {
+  return StyleSheet.create({
+    body: { color: theme.textPrimary, fontSize: 15 },
+    paragraph: { marginTop: 0, marginBottom: 8 },
+    strong: { fontWeight: '700' },
+    bullet_list: { marginBottom: 8 },
+    ordered_list: { marginBottom: 8 },
+    code_inline: {
+      backgroundColor: theme.background,
+      color: theme.textPrimary,
+      borderRadius: 4,
+      paddingHorizontal: 4,
+    },
+    code_block: { backgroundColor: theme.background, borderRadius: 8, padding: 10 },
+    fence: { backgroundColor: theme.background, borderRadius: 8, padding: 10 },
+    link: { color: theme.brandColor },
+    table: { borderWidth: 1, borderColor: theme.border, borderRadius: 8, marginBottom: 8 },
+    thead: { backgroundColor: theme.background },
+    th: { padding: 8, fontWeight: '700', color: theme.textPrimary, borderColor: theme.border },
+    td: { padding: 8, color: theme.textPrimary, borderColor: theme.border },
+    tr: { borderBottomWidth: 1, borderColor: theme.border },
+  });
+}
+
 /**
  * Pure presentational "Ask ADAR" chat UI -- message list, empty-state
  * chips, input row. Shared by ChatScreen (authenticated, useChat()) and
@@ -35,6 +67,7 @@ export interface ChatViewProps {
 export function ChatView({ messages, sending, error, send, theme, placeholder, suggestedQuestions }: ChatViewProps) {
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList<ChatMessage>>(null);
+  const mdStyles = markdownStyles(theme);
 
   const submit = () => {
     if (!draft.trim() || sending) return;
@@ -77,9 +110,25 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
                   : [styles.assistantBubble, { backgroundColor: theme.surface, borderColor: theme.border }],
               ]}
             >
-              <Text style={item.role === 'user' ? styles.userText : { color: theme.textPrimary }}>
-                {item.text}
-              </Text>
+              {item.role === 'user' ? (
+                <Text style={styles.userText}>{item.text}</Text>
+              ) : (
+                <Markdown
+                  style={mdStyles}
+                  // Wide GFM tables (adar-core replies often include one)
+                  // don't fit an 85%-width bubble -- let just the table
+                  // scroll horizontally instead of squashing every column.
+                  rules={{
+                    table: (node, children) => (
+                      <ScrollView key={node.key} horizontal showsHorizontalScrollIndicator>
+                        <View style={mdStyles.table}>{children}</View>
+                      </ScrollView>
+                    ),
+                  }}
+                >
+                  {item.text}
+                </Markdown>
+              )}
             </View>
           )}
         />
@@ -116,8 +165,8 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16, textAlign: 'center' },
   chip: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginBottom: 8 },
   list: { padding: 16 },
-  bubble: { borderRadius: 16, padding: 12, marginBottom: 10, maxWidth: '85%' },
-  userBubble: { alignSelf: 'flex-end' },
+  bubble: { borderRadius: 16, padding: 12, marginBottom: 10, maxWidth: '92%' },
+  userBubble: { alignSelf: 'flex-end', maxWidth: '85%' },
   assistantBubble: { alignSelf: 'flex-start', borderWidth: 1 },
   userText: { color: '#fff' },
   error: { color: '#c0392b', textAlign: 'center', paddingVertical: 6, fontSize: 13 },
