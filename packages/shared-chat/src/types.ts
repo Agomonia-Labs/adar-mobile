@@ -35,3 +35,19 @@ export interface TtsResponseBody {
 export interface SttResponseBody {
   text: string;
 }
+
+// ── Guest ("try without an account") flow ──────────────────────────────────
+// Mirrors adar-core/api/routes/arcl_guest.py (also used by the public
+// https://labs.agomoniai.com/arcl demo) -- same pattern backs
+// /api/geetabitan/guest/* and /api/scheduling/guest/* for the other domains.
+
+/** Raw shape POST /api/{domain}/guest/session returns. */
+export interface GuestSessionResponse {
+  access_token: string;
+  token_type: string;
+  /** Token lifetime in seconds (30 min server-side). */
+  expires_in: number;
+  expires_at: string;
+  guest_id: string;
+  scope: string[];
+}

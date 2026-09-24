@@ -1,5 +1,10 @@
 import { AxiosInstance } from 'axios';
-import type { ChatResponseBody, SttResponseBody, TtsResponseBody } from './types';
+import type {
+  ChatResponseBody,
+  GuestSessionResponse,
+  SttResponseBody,
+  TtsResponseBody,
+} from './types';
 
 // POST /api/chat is domain-generic across every adar-core deployment
 // (arcl, geetabitan, scheduling) -- same endpoint, same request/response
@@ -53,4 +58,42 @@ export async function transcribeSpeech(
 export function extractChatErrorMessage(err: unknown, fallback: string): string {
   const anyErr = err as { response?: { data?: { detail?: string } } };
   return anyErr?.response?.data?.detail || fallback;
+}
+
+// ── Guest ("try without an account") flow ──────────────────────────────────
+// Mirrors adar-core/api/routes/arcl_guest.py -- the same backend flow that
+// powers the public https://labs.agomoniai.com/arcl demo, no login required.
+// Unlike sendChatMessage above, these calls are unauthenticated by the
+// tenant's usual X-API-Key/session and instead carry a short-lived guest
+// bearer token that's minted per-device by createGuestSession.
+
+/** POST /api/{domain}/guest/session -- mints a short-lived (30 min) guest
+ *  identity. No request body, no auth needed beyond the tenant's base
+ *  client. Rate limited server-side to 20 sessions/10min per origin+IP. */
+export async function createGuestSession(
+  client: AxiosInstance,
+  domain: string
+): Promise<GuestSessionResponse> {
+  const { data } = await client.post<GuestSessionResponse>(`/api/${domain}/guest/session`);
+  return data;
+}
+
+/** POST /api/{domain}/guest/chat -- same ChatResponse shape as the
+ *  authenticated /api/chat, but scoped to the guest token's identity
+ *  (server derives user_id from the token, not the request body) and
+ *  rate limited to 12 questions/min, 20 questions total per guest
+ *  session. */
+export async function sendGuestChatMessage(
+  client: AxiosInstance,
+  domain: string,
+  accessToken: string,
+  message: string,
+  sessionId?: string
+): Promise<ChatResponseBody> {
+  const { data } = await client.post<ChatResponseBody>(
+    `/api/${domain}/guest/chat`,
+    { message, session_id: sessionId },
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  return data;
 }

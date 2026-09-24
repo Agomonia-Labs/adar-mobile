@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth, LoginScreen, OtpScreen, AuthTenantConfig } from '@adar/shared-auth';
 import { HomeScreen } from './src/HomeScreen';
+import { GuestHomeScreen } from './src/GuestHomeScreen';
 
 // One adar-core deployment per app — this is the ARCL instance.
 // See adar-core/ui/.env.production for the source of truth.
@@ -20,9 +22,29 @@ const tenant: AuthTenantConfig = {
 
 function Gate() {
   const { session, mfaPending, loading } = useAuth();
+  // Starts on the no-login guest experience (same flow as
+  // labs.agomoniai.com/arcl) -- "Sign in" flips this to the real login
+  // flow for anyone with an actual ARCL account.
+  const [wantsSignIn, setWantsSignIn] = useState(false);
+
   if (loading) return null; // TODO: replace with a splash screen
-  if (!session) return mfaPending ? <OtpScreen /> : <LoginScreen />;
-  return <HomeScreen />;
+  if (session) return <HomeScreen />;
+  if (mfaPending) return <OtpScreen />;
+
+  if (wantsSignIn) {
+    return (
+      <View style={styles.flex}>
+        <LoginScreen />
+        <TouchableOpacity style={styles.guestLink} onPress={() => setWantsSignIn(false)}>
+          <Text style={[styles.guestLinkText, { color: tenant.brandColor }]}>
+            ← Continue as guest instead
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return <GuestHomeScreen onSignIn={() => setWantsSignIn(true)} />;
 }
 
 export default function App() {
@@ -35,3 +57,16 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  guestLink: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+  },
+  guestLinkText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+});
