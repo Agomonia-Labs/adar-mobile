@@ -65,8 +65,14 @@ function markdownStyles(theme: ChatTheme) {
 // naturally on mobile with no scrolling or zooming required.
 function extractPlainText(node: any): string {
   if (!node) return '';
+  // Wrapper nodes (td/th/inline) carry an empty `content` string and put
+  // the real text in `children` -- only leaf text nodes have a non-empty
+  // `content` with no children. Recurse into children first, or this
+  // returns '' for every cell (which is exactly what happened before).
+  if (Array.isArray(node.children) && node.children.length > 0) {
+    return node.children.map(extractPlainText).join('');
+  }
   if (typeof node.content === 'string') return node.content;
-  if (Array.isArray(node.children)) return node.children.map(extractPlainText).join('');
   return '';
 }
 
