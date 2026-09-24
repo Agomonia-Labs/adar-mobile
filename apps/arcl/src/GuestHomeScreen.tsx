@@ -1,5 +1,5 @@
 import React from 'react';
-import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '@adar/shared-auth';
 import { GuestChatScreen } from '@adar/shared-chat';
 
@@ -30,7 +30,10 @@ export function GuestHomeScreen({ onSignIn }: { onSignIn: () => void }) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={[styles.header, { borderColor: tenant.brandColor }]}>
-        <Text style={[styles.badge, { color: tenant.brandColor }]}>Guest experience</Text>
+        <View style={styles.brand}>
+          <Image source={require('../assets/icon.png')} style={styles.brandLogo} resizeMode="contain" />
+          <Text style={[styles.brandName, { color: tenant.brandColor }]}>{tenant.displayName}</Text>
+        </View>
         <TouchableOpacity onPress={onSignIn}>
           <Text style={[styles.signIn, { color: tenant.brandColor }]}>Sign in</Text>
         </TouchableOpacity>
@@ -55,6 +58,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
   },
-  badge: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  brand: { flexDirection: 'row', alignItems: 'center' },
+  brandLogo: { width: 28, height: 28, borderRadius: 6, marginRight: 8 },
+  brandName: { fontSize: 15, fontWeight: '700' },
   signIn: { fontSize: 14, fontWeight: '700' },
 });
