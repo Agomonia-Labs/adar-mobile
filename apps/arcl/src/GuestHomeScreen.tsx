@@ -32,7 +32,7 @@ export function GuestHomeScreen({ onSignIn }: { onSignIn: () => void }) {
       <View style={[styles.header, { borderColor: tenant.brandColor }]}>
         <View style={styles.brand}>
           <Image source={require('../assets/logo-mark.png')} style={styles.brandLogo} resizeMode="contain" />
-          <Text style={[styles.brandName, { color: tenant.brandColor }]}>{tenant.displayName}</Text>
+          <Text style={[styles.brandName, { color: tenant.brandColor }]}>Ask {tenant.displayName}</Text>
         </View>
         <TouchableOpacity onPress={onSignIn}>
           <Text style={[styles.signIn, { color: tenant.brandColor }]}>Sign in</Text>
