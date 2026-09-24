@@ -5,7 +5,6 @@ import {
   ImageSourcePropType,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -54,23 +53,73 @@ function markdownStyles(theme: ChatTheme) {
     code_block: { backgroundColor: theme.background, borderRadius: 8, padding: 10 },
     fence: { backgroundColor: theme.background, borderRadius: 8, padding: 10 },
     link: { color: theme.brandColor },
-    table: { borderWidth: 1, borderColor: theme.border, borderRadius: 8, marginBottom: 8, overflow: 'hidden' },
-    thead: { backgroundColor: theme.background },
-    th: {
-      padding: 8,
-      fontWeight: '700',
-      color: theme.textPrimary,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.border,
-    },
-    td: {
-      padding: 8,
-      color: theme.textPrimary,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.border,
-    },
-    tr: { flexDirection: 'row', borderBottomWidth: 0 },
   });
+}
+
+// GFM tables (adar-core replies often include one -- scorecards, standings)
+// render badly as a literal grid on a narrow phone screen: tiny squashed
+// columns or endless horizontal scrolling either way. Instead, flatten
+// each row into a card: the row's first column becomes the card title
+// (e.g. a player or team name) and every other column becomes a
+// "Label: Value" line underneath it -- a plain vertical list that reads
+// naturally on mobile with no scrolling or zooming required.
+function extractPlainText(node: any): string {
+  if (!node) return '';
+  if (typeof node.content === 'string') return node.content;
+  if (Array.isArray(node.children)) return node.children.map(extractPlainText).join('');
+  return '';
+}
+
+function renderTableAsCards(node: any, theme: ChatTheme) {
+  const thead = node.children?.find((c: any) => c.type === 'thead');
+  const tbody = node.children?.find((c: any) => c.type === 'tbody');
+  const headerRow = thead?.children?.[0];
+  const headers: string[] = (headerRow?.children || []).map(extractPlainText);
+  const bodyRows = tbody?.children || [];
+
+  return (
+    <View key={node.key} style={{ marginBottom: 8 }}>
+      {bodyRows.map((row: any, rowIdx: number) => {
+        const cells = row.children || [];
+        const [firstCell, ...restCells] = cells;
+        const title = firstCell ? extractPlainText(firstCell) : '';
+
+        return (
+          <View
+            key={row.key ?? rowIdx}
+            style={{
+              backgroundColor: theme.background,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.border,
+              borderRadius: 10,
+              padding: 10,
+              marginBottom: 8,
+            }}
+          >
+            {title ? (
+              <Text style={{ fontSize: 15, fontWeight: '700', color: theme.textPrimary, marginBottom: 4 }}>
+                {title}
+              </Text>
+            ) : null}
+            {restCells.map((cell: any, colIdx: number) => {
+              const value = extractPlainText(cell);
+              if (!value) return null;
+              const label = headers[colIdx + 1] || '';
+              return (
+                <View
+                  key={colIdx}
+                  style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}
+                >
+                  <Text style={{ fontSize: 13, color: theme.textSecondary }}>{label}</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textPrimary }}>{value}</Text>
+                </View>
+              );
+            })}
+          </View>
+        );
+      })}
+    </View>
+  );
 }
 
 /**
@@ -131,15 +180,8 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
               ) : (
                 <Markdown
                   style={mdStyles}
-                  // Wide GFM tables (adar-core replies often include one)
-                  // don't fit an 85%-width bubble -- let just the table
-                  // scroll horizontally instead of squashing every column.
                   rules={{
-                    table: (node, children) => (
-                      <ScrollView key={node.key} horizontal showsHorizontalScrollIndicator>
-                        <View style={mdStyles.table}>{children}</View>
-                      </ScrollView>
-                    ),
+                    table: (node) => renderTableAsCards(node, theme),
                   }}
                 >
                   {item.text}
