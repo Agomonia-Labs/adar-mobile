@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { LoginScreen, OtpScreen, register, useAuth } from '@adar/shared-auth';
+import { DemoVideoScreen } from './DemoVideoScreen';
 
 type Mode = 'login' | 'register';
 
@@ -38,6 +39,7 @@ export interface AccountGateProps {
 export function AccountGate({ brandColor }: AccountGateProps) {
   const { mfaPending, signIn, client } = useAuth();
   const [mode, setMode] = useState<Mode>('login');
+  const [showDemo, setShowDemo] = useState(false);
 
   if (mfaPending) {
     return <OtpScreen />;
@@ -60,9 +62,13 @@ export function AccountGate({ brandColor }: AccountGateProps) {
   return (
     <View style={styles.flex}>
       <LoginScreen />
+      <TouchableOpacity style={styles.footerLink} onPress={() => setShowDemo(true)}>
+        <Text style={[styles.footerLinkText, { color: brandColor }]}>▶ Watch how it works</Text>
+      </TouchableOpacity>
       <TouchableOpacity style={styles.footerLink} onPress={() => setMode('register')}>
         <Text style={[styles.footerLinkText, { color: brandColor }]}>New here? Create an account</Text>
       </TouchableOpacity>
+      <DemoVideoScreen visible={showDemo} onClose={() => setShowDemo(false)} />
     </View>
   );
 }
