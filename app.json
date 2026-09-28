@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "b4d496fb-c738-4584-bfa4-b72eb22a00a0"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.brajadas.adarmobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      ["expo-build-properties", { "android": { "compileSdkVersion": 36, "targetSdkVersion": 36 } }]
+    ]
+  }
+}

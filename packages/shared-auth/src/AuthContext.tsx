@@ -64,6 +64,38 @@ export function AuthProvider({
     };
   }, []);
 
+  // Persisted sign-in is the whole point of storing the session in
+  // SecureStore: once a person has signed in, reopening the app should
+  // never show the login screen again while their token is still good --
+  // loadSession() above restores it silently on every cold start. The one
+  // case that legitimately has to fall back to the login screen is the
+  // token actually being invalid or expired (decode_token on the backend
+  // answers those with 401, see api/routes/auth.py) -- without this, a
+  // signed-in person would instead sit on a home screen that silently
+  // fails every request once their 30-day token lapses. A 401 only ever
+  // means "no/garbage/expired credentials" in this API (role/permission
+  // problems are always 403), so it's safe to treat any 401 as "sign this
+  // person out and let them sign back in" -- if there's no session yet
+  // (e.g. a wrong-password attempt on the login screen itself) this is a
+  // harmless no-op.
+  useEffect(() => {
+    const id = client.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        if (error?.response?.status === 401) {
+          await clearSession();
+          setSession(null);
+          setMfaToken(null);
+          setEmailHint(null);
+        }
+        return Promise.reject(error);
+      }
+    );
+    return () => {
+      client.interceptors.response.eject(id);
+    };
+  }, [client]);
+
   const signIn = useCallback(
     async (email: string, password: string) => {
       setError(null);

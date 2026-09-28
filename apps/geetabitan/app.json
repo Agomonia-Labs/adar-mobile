@@ -14,7 +14,9 @@
       "bundleIdentifier": "com.agomoniai.adargeetabitan",
       "supportsTablet": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "ADAR Geetabitan uses your microphone so you can ask questions by voice instead of typing.",
+        "CFBundleDisplayName": "আদর গীতবিতান"
       }
     },
     "android": {
@@ -22,7 +24,10 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#7a1f33"
-      }
+      },
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
     },
     "extra": {
       "eas": {

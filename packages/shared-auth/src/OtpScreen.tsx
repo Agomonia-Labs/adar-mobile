@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -55,9 +56,13 @@ export function OtpScreen() {
     >
       <ScrollView contentContainerStyle={styles.center} keyboardShouldPersistTaps="handled">
         <View style={styles.card}>
-          <View style={[styles.logo, { backgroundColor: theme.brandColor }]}>
-            <Text style={styles.logoText}>{tenant.logoText}</Text>
-          </View>
+          {tenant.logoImage ? (
+            <Image source={tenant.logoImage} style={styles.logoImage} />
+          ) : (
+            <View style={[styles.logo, { backgroundColor: theme.brandColor }]}>
+              <Text style={styles.logoText}>{tenant.logoText}</Text>
+            </View>
+          )}
           <Text style={[styles.title, { color: theme.textPrimary }]}>Check your email</Text>
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
             We sent a 6-digit login code to{'\n'}
@@ -118,6 +123,7 @@ const styles = StyleSheet.create({
     width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 16,
   },
   logoText: { color: '#fff', fontWeight: '700', fontSize: 18 },
+  logoImage: { width: 56, height: 56, borderRadius: 16, marginBottom: 16 },
   title: { fontSize: 18, fontWeight: '700', marginBottom: 6, textAlign: 'center' },
   subtitle: { fontSize: 14, marginBottom: 20, textAlign: 'center', lineHeight: 20 },
   otpInput: {

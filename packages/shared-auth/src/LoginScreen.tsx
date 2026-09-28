@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -10,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import type { ImageSourcePropType } from 'react-native';
 import { useAuth } from './AuthContext';
 import { getAuthTheme } from './theme';
 import { requestPasswordReset } from './AuthContext';
@@ -49,7 +51,7 @@ export function LoginScreen() {
       >
         <ScrollView contentContainerStyle={styles.center}>
           <View style={styles.card}>
-            <Logo text={tenant.logoText} color={theme.brandColor} />
+            <Logo text={tenant.logoText} color={theme.brandColor} image={tenant.logoImage} />
             <Text style={[styles.title, { color: theme.textPrimary }]}>Reset your password</Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
               Enter the email on your account and we'll send you a reset link.
@@ -86,7 +88,7 @@ export function LoginScreen() {
     >
       <ScrollView contentContainerStyle={styles.center} keyboardShouldPersistTaps="handled">
         <View style={styles.card}>
-          <Logo text={tenant.logoText} color={theme.brandColor} />
+          <Logo text={tenant.logoText} color={theme.brandColor} image={tenant.logoImage} />
           <Text style={[styles.title, { color: theme.textPrimary }]}>{tenant.displayName}</Text>
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Sign in to continue</Text>
 
@@ -128,7 +130,10 @@ export function LoginScreen() {
   );
 }
 
-function Logo({ text, color }: { text: string; color: string }) {
+function Logo({ text, color, image }: { text: string; color: string; image?: ImageSourcePropType }) {
+  if (image) {
+    return <Image source={image} style={styles.logoImage} />;
+  }
   return (
     <View style={[styles.logo, { backgroundColor: color }]}>
       <Text style={styles.logoText}>{text}</Text>
@@ -144,6 +149,7 @@ const styles = StyleSheet.create({
     width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 16,
   },
   logoText: { color: '#fff', fontWeight: '700', fontSize: 18 },
+  logoImage: { width: 56, height: 56, borderRadius: 16, marginBottom: 16 },
   title: { fontSize: 20, fontWeight: '700', marginBottom: 4, textAlign: 'center' },
   subtitle: { fontSize: 14, marginBottom: 20, textAlign: 'center' },
   input: {

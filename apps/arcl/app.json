@@ -11,6 +11,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0c4d34"
     },
+    "plugins": [
+      ["expo-build-properties", { "android": { "compileSdkVersion": 36, "targetSdkVersion": 36 } }]
+    ],
     "ios": {
       "bundleIdentifier": "com.agomoniai.adararcl",
       "supportsTablet": true,

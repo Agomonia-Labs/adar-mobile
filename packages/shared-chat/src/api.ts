@@ -111,16 +111,94 @@ export async function createGuestSession(
  *  (server derives user_id from the token, not the request body) and
  *  rate limited to 12 questions/min, 20 questions total per guest
  *  session. */
+export interface GuestCallerDetails {
+  name: string;
+  phone: string;
+  email: string;
+}
+
 export async function sendGuestChatMessage(
   client: AxiosInstance,
   domain: string,
   accessToken: string,
   message: string,
-  sessionId?: string
+  sessionId?: string,
+  practiceId?: string,
+  callerDetails?: GuestCallerDetails,
+  /** The app's active language code (e.g. "bn-BD") -- lets the backend
+   *  (api/main.py's scheduling_guest_chat) instruct the agent to actually
+   *  reply in that language for the whole conversation, instead of only
+   *  auto-detecting from what the customer typed. Optional; omit for
+   *  callers that don't have a language concept (ARCL/Geetabitan). */
+  preferredLanguage?: string,
+  /** The signed-in customer's real access token (separate from the
+   *  anonymous guest `accessToken` above, which still authenticates the
+   *  request and scopes rate limiting). Sent as X-Customer-Token so the
+   *  backend can attach the customer's real identity to this turn --
+   *  server-verified, never a plain body field the model could spoof --
+   *  so a booking made from this conversation shows up in that account's
+   *  My Appointments tab. Optional; omit for a caller with no signed-in
+   *  account concept. */
+  customerAccessToken?: string
 ): Promise<ChatResponseBody> {
   const { data } = await client.post<ChatResponseBody>(
     `/api/${domain}/guest/chat`,
-    { message, session_id: sessionId },
+    {
+      message,
+      session_id: sessionId,
+      practice_id: practiceId,
+      caller_name: callerDetails?.name,
+      caller_phone: callerDetails?.phone,
+      caller_email: callerDetails?.email,
+      preferred_language: preferredLanguage,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(customerAccessToken ? { 'X-Customer-Token': customerAccessToken } : {}),
+      },
+    }
+  );
+  return data;
+}
+
+// ── Guest voice (STT/TTS under the guest bearer token) ─────────────────────
+// Same underlying Google STT/TTS as the authenticated /api/stt and
+// /api/demo/tts (see adar-core/api/main.py's speech_to_text/demo_tts),
+// just re-scoped behind the guest bearer token so voice use also counts
+// against each guest route module's own enforce_voice_rate_limit -- kept
+// separate from transcribeSpeech/synthesizeSpeech above rather than
+// overloading them, since guest calls need the guest token in the
+// Authorization header instead of a signed-in session's accessToken.
+
+/** POST /api/{domain}/guest/stt */
+export async function transcribeGuestSpeech(
+  client: AxiosInstance,
+  domain: string,
+  accessToken: string,
+  audioBase64: string,
+  mime: string,
+  lang = 'en-US'
+): Promise<SttResponseBody> {
+  const { data } = await client.post<SttResponseBody>(
+    `/api/${domain}/guest/stt`,
+    { audio: audioBase64, mime, lang },
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  return data;
+}
+
+/** POST /api/{domain}/guest/tts */
+export async function synthesizeGuestSpeech(
+  client: AxiosInstance,
+  domain: string,
+  accessToken: string,
+  text: string,
+  lang = 'en-US'
+): Promise<TtsResponseBody> {
+  const { data } = await client.post<TtsResponseBody>(
+    `/api/${domain}/guest/tts`,
+    { text, lang },
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
   return data;

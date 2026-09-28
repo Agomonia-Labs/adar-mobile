@@ -21,6 +21,7 @@
       }
     },
     "production": {
+      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
       },
@@ -40,9 +41,9 @@
         "track": "internal"
       },
       "ios": {
-        "appleId": "YOUR_APPLE_ID_HERE",
-        "ascAppId": "YOUR_APP_STORE_CONNECT_APP_ID_HERE",
-        "appleTeamId": "YOUR_APPLE_TEAM_ID_HERE"
+        "appleId": "bkd_108@yahoo.com",
+        "ascAppId": "6815705035",
+        "appleTeamId": "2B484T222R"
       }
     }
   }

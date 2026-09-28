@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
+import type { MutableRefObject } from 'react';
 import { AxiosInstance } from 'axios';
 import { createGuestSession, extractChatErrorMessage, sendGuestChatMessage } from './api';
+import type { GuestCallerDetails } from './api';
 import type { ChatMessage } from './types';
 import type { UseChatResult } from './useChat';
 
@@ -16,6 +18,14 @@ function nextGuestId(): string {
 // an error to the user.
 const GUEST_SESSION_MAX_MESSAGES = 20;
 
+export interface UseGuestChatResult extends UseChatResult {
+  /** Returns the current (possibly freshly minted) guest bearer token --
+   *  the same one `send` uses internally. Exposed so callers can hit other
+   *  guest-scoped endpoints (voice STT/TTS) under the same guest identity
+   *  instead of minting a second, unrelated guest session. */
+  getAccessToken: () => Promise<string>;
+}
+
 /**
  * Chat controller for the anonymous "guest" experience -- the same
  * no-login flow that powers https://labs.agomoniai.com/arcl. Same
@@ -27,7 +37,38 @@ const GUEST_SESSION_MAX_MESSAGES = 20;
  * createGuestSession, and re-mints automatically when the token expires
  * or the per-session question limit is reached.
  */
-export function useGuestChat(client: AxiosInstance, domain: string): UseChatResult {
+export function useGuestChat(
+  client: AxiosInstance,
+  domain: string,
+  /** Optional, read fresh on every send() -- lets a caller like ADAR Front
+   *  Desk's multi-practice "Ask ADAR" tab tell the agent which practice is
+   *  currently selected in the app without recreating this hook's
+   *  callbacks every time the selection changes. Callers that only ever
+   *  have one practice/tenant (ARCL, Geetabitan) simply omit this. */
+  practiceIdRef?: MutableRefObject<string | undefined>,
+  /** Optional, read fresh on every send() -- the customer's name/phone/
+   *  email from a pre-chat text-box form (ADAR Front Desk's "Ask ADAR"
+   *  tab), sent to the agent once as a "caller details" hint (its
+   *  instructions already know this shape -- it's the same hint a
+   *  pre-chat form on the booking screen was always meant to supply) and
+   *  then not repeated unless the details actually change, so the agent
+   *  confirms them once instead of re-asking or re-greeting every turn.
+   *  reset() clears the "already sent" memory too, so a fresh
+   *  conversation re-sends the current details on its first message. */
+  callerDetailsRef?: MutableRefObject<GuestCallerDetails | undefined>,
+  /** Optional, read fresh on every send() -- the app's active language
+   *  code (e.g. "bn-BD" for ADAR Front Desk's language picker), sent as
+   *  preferred_language so the agent's actual reply follows the app's
+   *  language selection instead of just auto-detecting from the message
+   *  text. Callers with no language concept simply omit this. */
+  languageRef?: MutableRefObject<string | undefined>,
+  /** Optional, read fresh on every send() -- the signed-in customer's real
+   *  access token (separate from this hook's own anonymous guest token),
+   *  sent as X-Customer-Token so the backend can attach the customer's
+   *  real identity to bookings made in this conversation. Callers with no
+   *  signed-in-account concept simply omit this. */
+  customerAccessTokenRef?: MutableRefObject<string | undefined>
+): UseGuestChatResult {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +76,7 @@ export function useGuestChat(client: AxiosInstance, domain: string): UseChatResu
   const expiresAtMsRef = useRef<number>(0);
   const sessionIdRef = useRef<string | undefined>(undefined);
   const sentCountRef = useRef(0);
+  const lastSentCallerDetailsRef = useRef<string>('');
 
   const ensureGuestToken = useCallback(async () => {
     const stillValid =
@@ -68,7 +110,21 @@ export function useGuestChat(client: AxiosInstance, domain: string): UseChatResu
 
       try {
         const token = await ensureGuestToken();
-        const result = await sendGuestChatMessage(client, domain, token, trimmed, sessionIdRef.current);
+        const details = callerDetailsRef?.current;
+        const detailsKey = details ? JSON.stringify(details) : '';
+        const includeDetails = !!details && detailsKey !== lastSentCallerDetailsRef.current;
+        const result = await sendGuestChatMessage(
+          client,
+          domain,
+          token,
+          trimmed,
+          sessionIdRef.current,
+          practiceIdRef?.current,
+          includeDetails ? details : undefined,
+          languageRef?.current,
+          customerAccessTokenRef?.current
+        );
+        if (includeDetails) lastSentCallerDetailsRef.current = detailsKey;
         sessionIdRef.current = result.session_id;
         sentCountRef.current += 1;
         setMessages((prev) => [
@@ -81,7 +137,7 @@ export function useGuestChat(client: AxiosInstance, domain: string): UseChatResu
         setSending(false);
       }
     },
-    [client, domain, ensureGuestToken, sending]
+    [client, domain, ensureGuestToken, sending, practiceIdRef, callerDetailsRef, languageRef, customerAccessTokenRef]
   );
 
   const reset = useCallback(() => {
@@ -90,8 +146,9 @@ export function useGuestChat(client: AxiosInstance, domain: string): UseChatResu
     expiresAtMsRef.current = 0;
     sessionIdRef.current = undefined;
     sentCountRef.current = 0;
+    lastSentCallerDetailsRef.current = '';
     setError(null);
   }, []);
 
-  return { messages, sending, error, send, reset };
+  return { messages, sending, error, send, reset, getAccessToken: ensureGuestToken };
 }

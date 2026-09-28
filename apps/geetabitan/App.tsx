@@ -1,8 +1,10 @@
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { AuthProvider, useAuth, LoginScreen, OtpScreen, AuthTenantConfig } from '@adar/shared-auth';
-import { HomeScreen } from './src/HomeScreen';
+import { AuthProvider, AuthTenantConfig } from '@adar/shared-auth';
+import { GuestHomeScreen } from './src/GuestHomeScreen';
+import { AiConsentScreen } from './src/AiConsentScreen';
+import { useAiConsent } from './src/useAiConsent';
 
 // See adar-core/ui/.env.geetabitan for the source of truth.
 const tenant: AuthTenantConfig = {
@@ -15,10 +17,19 @@ const tenant: AuthTenantConfig = {
 };
 
 function Gate() {
-  const { session, mfaPending, loading } = useAuth();
-  if (loading) return null; // TODO: replace with a splash screen
-  if (!session) return mfaPending ? <OtpScreen /> : <LoginScreen />;
-  return <HomeScreen />;
+  // Required by Apple App Review Guideline 5.1.2(i) -- checked first, before
+  // the guest chat/voice screen can render, until the user has explicitly
+  // agreed to the AI-data-sharing disclosure. See useAiConsent.ts /
+  // AiConsentScreen.tsx.
+  const { state: consentState, grant: grantConsent } = useAiConsent();
+
+  if (consentState === 'loading') return null; // TODO: replace with a splash screen
+  if (consentState === 'needed') return <AiConsentScreen onAccept={grantConsent} />;
+
+  // Geetabitan is open to everyone now -- guest-only, no sign-in/account
+  // flow. (HomeScreen.tsx / the LoginScreen+OtpScreen flow are kept in the
+  // repo but no longer wired in, in case signed-in mode comes back later.)
+  return <GuestHomeScreen />;
 }
 
 export default function App() {

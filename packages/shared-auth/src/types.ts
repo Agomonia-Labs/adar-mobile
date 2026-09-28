@@ -1,6 +1,8 @@
 // Everything here mirrors the real contract implemented in
 // adar-core/api/routes/auth.py — keep the two in sync.
 
+import type { ImageSourcePropType } from 'react-native';
+
 export interface AuthTenantConfig {
   /** Base URL of THIS product's adar-core deployment.
    *  e.g. https://api.arcl.tigers.agomoniai.com */
@@ -14,6 +16,11 @@ export interface AuthTenantConfig {
   displayName: string;
   /** Short text mark for the logo badge, e.g. "AC" */
   logoText: string;
+  /** Optional real logo image (e.g. require('../assets/icon.png')), shown
+   *  on LoginScreen/OtpScreen instead of the logoText circle badge when
+   *  set. Apps without a logo asset (ARCL, Geetabitan today) simply omit
+   *  this and keep the text badge. */
+  logoImage?: ImageSourcePropType;
   /** Primary brand color, hex */
   brandColor: string;
 }

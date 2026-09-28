@@ -4,6 +4,7 @@ import {
   Image,
   ImageSourcePropType,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   StyleSheet,
   Text,
@@ -17,6 +18,21 @@ import type { ChatMessage } from './types';
 
 type ChatTheme = ReturnType<typeof getAuthTheme>;
 
+export interface ChatViewVoiceProps {
+  /** True while actively recording the user's voice. */
+  recording: boolean;
+  /** True while a recording is being transcribed, or a reply is being synthesized. */
+  busy: boolean;
+  /** Voice-specific error (mic permission, network, ...) -- separate from `error` above. */
+  error: string | null;
+  /** Starts recording on tap; tap again to stop, transcribe, and send. */
+  onToggleRecord: () => void;
+  /** Id of the assistant message currently playing back, if any. */
+  playingMessageId: string | null;
+  /** Synthesizes and plays one assistant message; tapping the same message again stops it. */
+  onPlayMessage: (message: ChatMessage) => void;
+}
+
 export interface ChatViewProps {
   messages: ChatMessage[];
   sending: boolean;
@@ -29,6 +45,35 @@ export interface ChatViewProps {
   suggestedQuestions?: string[];
   /** Optional logo shown above the placeholder text in the empty state. */
   logo?: ImageSourcePropType;
+  /** Omit entirely to render the plain text-only chat (default for every
+   *  tenant). Only a caller that wires up recording + playback (see
+   *  apps/geetabitan/src/useVoiceChat.ts) passes this, so ARCL/FrontDesk
+   *  are unaffected. */
+  voice?: ChatViewVoiceProps;
+  /** Optional element rendered above the input row -- e.g. Geetabitan's
+   *  embedded YouTube mini-player when a reply links to a video. Omit
+   *  entirely for tenants that don't need it (keeps react-native-webview
+   *  out of ARCL/FrontDesk, same reasoning as `voice` above). */
+  videoPlayer?: React.ReactNode;
+  /** Optional element rendered as part of the conversation itself, not
+   *  above/outside it -- e.g. ADAR Front Desk's name/phone/email pre-chat
+   *  form. Shown in the empty state (before the first message) AND as the
+   *  message list's own ListHeaderComponent (so it stays visible, scrolling
+   *  with the conversation, once messages start coming in) -- this is what
+   *  makes it read as "part of the conversation" rather than a separate
+   *  bar sitting outside the chat. Omit entirely for tenants that don't
+   *  need it. */
+  leadingContent?: React.ReactNode;
+  /** Extra height (px) to add on top of KeyboardAvoidingView's own
+   *  keyboard-height compensation, for screens where ChatView is NOT the
+   *  direct root of the screen -- e.g. ADAR Front Desk's Ask ADAR tab,
+   *  which sits below a header + tab bar + practice/new-chat bar.
+   *  KeyboardAvoidingView only tracks the keyboard's height, not how far
+   *  down the screen it itself starts, so without this the input row (and
+   *  the last message above it) can end up overlapping once the keyboard
+   *  opens. Omit for a screen where ChatView IS the root (ARCL,
+   *  Geetabitan) -- default 0 matches today's behavior exactly. */
+  keyboardVerticalOffset?: number;
 }
 
 // adar-core's assistant replies are Markdown -- the web app renders them
@@ -76,6 +121,35 @@ function extractPlainText(node: any): string {
   return '';
 }
 
+// A table cell that contains a markdown link (e.g. Geetabitan's YouTube
+// results table: "| লিংক | [▶ দেখুন](https://youtube.com/watch?v=...) |")
+// used to lose the href entirely -- extractPlainText above flattens a
+// `link` node down to just its label text ("▶ দেখুন"), because the custom
+// `table` render rule below bypasses react-native-markdown-display's own
+// `link` rule (the one that normally opens the href on tap). Recurse the
+// same way extractPlainText does, but keep any `link` node tappable
+// instead of discarding its href.
+function renderInline(node: any, key: string, theme: ChatTheme): React.ReactNode {
+  if (!node) return null;
+  if (node.type === 'link') {
+    const href = node.attributes?.href;
+    return (
+      <Text
+        key={key}
+        style={{ color: theme.brandColor, textDecorationLine: 'underline' }}
+        onPress={() => { if (href) Linking.openURL(href); }}
+      >
+        {extractPlainText(node)}
+      </Text>
+    );
+  }
+  if (Array.isArray(node.children) && node.children.length > 0) {
+    return node.children.map((child: any, i: number) => renderInline(child, `${key}-${i}`, theme));
+  }
+  if (typeof node.content === 'string') return node.content;
+  return null;
+}
+
 function renderTableAsCards(node: any, theme: ChatTheme) {
   const thead = node.children?.find((c: any) => c.type === 'thead');
   const tbody = node.children?.find((c: any) => c.type === 'tbody');
@@ -114,10 +188,22 @@ function renderTableAsCards(node: any, theme: ChatTheme) {
               return (
                 <View
                   key={colIdx}
-                  style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}
+                  style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 2 }}
                 >
-                  <Text style={{ fontSize: 13, color: theme.textSecondary }}>{label}</Text>
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textPrimary }}>{value}</Text>
+                  <Text style={{ fontSize: 13, color: theme.textSecondary, flexShrink: 0, marginRight: 8 }}>
+                    {label}
+                  </Text>
+                  {/* flex + flexShrink so a long song title or channel name
+                     (get_youtube_url's table can run long) wraps onto more
+                     lines instead of overflowing the card/bubble/screen --
+                     RN Views default to flexShrink: 0, so without this a
+                     long value renders at its full width regardless of
+                     the row's actual space. */}
+                  <Text
+                    style={{ fontSize: 13, fontWeight: '600', color: theme.textPrimary, flex: 1, flexShrink: 1, textAlign: 'right' }}
+                  >
+                    {renderInline(cell, `cell-${rowIdx}-${colIdx}`, theme)}
+                  </Text>
                 </View>
               );
             })}
@@ -133,8 +219,11 @@ function renderTableAsCards(node: any, theme: ChatTheme) {
  * chips, input row. Shared by ChatScreen (authenticated, useChat()) and
  * GuestChatScreen (no-login, useGuestChat()) so the two only differ in
  * which controller feeds them, never in how the conversation renders.
+ * The optional `voice` prop adds a mic button (record -> transcribe ->
+ * send) and a per-assistant-message "Listen" control -- see
+ * ChatViewVoiceProps above.
  */
-export function ChatView({ messages, sending, error, send, theme, placeholder, suggestedQuestions, logo }: ChatViewProps) {
+export function ChatView({ messages, sending, error, send, theme, placeholder, suggestedQuestions, logo, voice, videoPlayer, leadingContent, keyboardVerticalOffset = 0 }: ChatViewProps) {
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const mdStyles = markdownStyles(theme);
@@ -150,9 +239,11 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: theme.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={keyboardVerticalOffset}
     >
       {messages.length === 0 ? (
         <View style={styles.emptyState}>
+          {leadingContent ? <View style={styles.leadingContentEmpty}>{leadingContent}</View> : null}
           {logo ? <Image source={logo} style={styles.logo} resizeMode="contain" /> : null}
           <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>{placeholder}</Text>
           {(suggestedQuestions || []).map((q) => (
@@ -172,6 +263,7 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
           keyExtractor={(m) => m.id}
           contentContainerStyle={styles.list}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+          ListHeaderComponent={leadingContent ? <View style={styles.leadingContentList}>{leadingContent}</View> : null}
           renderItem={({ item }) => (
             <View
               style={[
@@ -184,14 +276,27 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
               {item.role === 'user' ? (
                 <Text style={styles.userText}>{item.text}</Text>
               ) : (
-                <Markdown
-                  style={mdStyles}
-                  rules={{
-                    table: (node) => renderTableAsCards(node, theme),
-                  }}
-                >
-                  {item.text}
-                </Markdown>
+                <>
+                  <Markdown
+                    style={mdStyles}
+                    rules={{
+                      table: (node) => renderTableAsCards(node, theme),
+                    }}
+                  >
+                    {item.text}
+                  </Markdown>
+                  {voice ? (
+                    <TouchableOpacity
+                      style={styles.speakerButton}
+                      onPress={() => voice.onPlayMessage(item)}
+                      accessibilityLabel={voice.playingMessageId === item.id ? 'Stop playback' : 'Listen to this reply'}
+                    >
+                      <Text style={[styles.speakerText, { color: theme.brandColor }]}>
+                        {voice.playingMessageId === item.id ? '⏸ Stop' : '🔊 Listen'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </>
               )}
             </View>
           )}
@@ -199,8 +304,26 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
       )}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
+      {voice?.error ? <Text style={styles.error}>{voice.error}</Text> : null}
+      {videoPlayer}
 
       <View style={[styles.inputRow, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+        {voice ? (
+          <TouchableOpacity
+            style={[
+              styles.micButton,
+              {
+                backgroundColor: voice.recording ? '#c0392b' : theme.background,
+                borderColor: voice.recording ? '#c0392b' : theme.border,
+              },
+            ]}
+            onPress={voice.onToggleRecord}
+            disabled={sending || (voice.busy && !voice.recording)}
+            accessibilityLabel={voice.recording ? 'Stop recording' : 'Ask by voice'}
+          >
+            <Text style={styles.micText}>{voice.recording ? '⏹' : voice.busy ? '…' : '🎤'}</Text>
+          </TouchableOpacity>
+        ) : null}
         <TextInput
           style={[styles.input, { color: theme.textPrimary }]}
           value={draft}
@@ -226,11 +349,13 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
 const styles = StyleSheet.create({
   container: { flex: 1 },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  leadingContentEmpty: { width: '100%', marginBottom: 16 },
+  leadingContentList: { marginHorizontal: -16, marginBottom: 4 },
   emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16, textAlign: 'center' },
   logo: { width: 64, height: 64, borderRadius: 14, marginBottom: 16 },
   chip: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginBottom: 8 },
   list: { padding: 16 },
-  bubble: { borderRadius: 16, padding: 12, marginBottom: 10, maxWidth: '92%' },
+  bubble: { borderRadius: 16, padding: 12, marginBottom: 10, maxWidth: '92%', overflow: 'hidden' },
   userBubble: { alignSelf: 'flex-end', maxWidth: '85%' },
   assistantBubble: { alignSelf: 'flex-start', borderWidth: 1 },
   userText: { color: '#fff' },
@@ -239,4 +364,16 @@ const styles = StyleSheet.create({
   input: { flex: 1, fontSize: 15, paddingVertical: 8, paddingHorizontal: 12 },
   sendButton: { marginLeft: 8, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12 },
   sendText: { color: '#fff', fontWeight: '700' },
+  micButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  micText: { fontSize: 18 },
+  speakerButton: { marginTop: 6, alignSelf: 'flex-start' },
+  speakerText: { fontSize: 12, fontWeight: '600' },
 });
