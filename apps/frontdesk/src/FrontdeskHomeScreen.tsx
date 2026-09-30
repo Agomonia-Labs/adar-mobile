@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import type { AxiosInstance } from 'axios';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getAuthTheme, useAuth } from '@adar/shared-auth';
+import { deleteAccount, getAuthTheme, useAuth } from '@adar/shared-auth';
 import { AccountGate } from './AccountGate';
 import { decodeJwtEmail } from './jwt';
 import { ChatView, synthesizeGuestSpeech, transcribeGuestSpeech, useGuestChat } from '@adar/shared-chat';
@@ -48,13 +49,7 @@ export function FrontdeskHomeScreen() {
   const [practicesError, setPracticesError] = useState<string | null>(null);
   const [practicesLoading, setPracticesLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState<'practice' | 'language' | null>(null);
-  // Measured (not guessed) heights of everything that sits above ChatView
-  // inside the Ask ADAR tab, fed to ChatView's keyboardVerticalOffset so the
-  // keyboard-avoiding input row/last message don't overlap once the keyboard
-  // opens -- see ChatView.tsx's own comment on that prop for why it's needed
-  // here but not for ARCL/Geetabitan (where ChatView is the screen root).
-  const [aboveChatHeight, setAboveChatHeight] = useState(0);
-  const [askContextBarHeight, setAskContextBarHeight] = useState(0);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -251,14 +246,14 @@ export function FrontdeskHomeScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <View onLayout={(e) => setAboveChatHeight(e.nativeEvent.layout.height)}>
+      <View>
       <View style={[styles.header, { borderColor: brandColor }]}>
         <View style={styles.brandRow}>
           <Image source={require('../assets/icon.png')} style={styles.logoMark} />
           <Text style={styles.brandName} numberOfLines={1}>{tenant.displayName}</Text>
         </View>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.headerButton} onPress={() => setPickerOpen('practice')}>
+          <TouchableOpacity style={[styles.headerButton, styles.headerButtonWide]} onPress={() => setPickerOpen('practice')}>
             <Text style={styles.headerButtonText} numberOfLines={1}>
               {activePractice ? activePractice.name : t('choosePractice')}
             </Text>
@@ -266,8 +261,8 @@ export function FrontdeskHomeScreen() {
           <TouchableOpacity style={styles.headerButton} onPress={() => setPickerOpen('language')}>
             <Text style={styles.headerButtonText}>{currentLanguageLabel}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerButton} onPress={() => signOut()}>
-            <Text style={styles.headerButtonText} numberOfLines={1}>Sign out</Text>
+          <TouchableOpacity style={styles.headerButton} onPress={() => setAccountOpen(true)}>
+            <Text style={styles.headerButtonText} numberOfLines={1}>Profile</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -317,10 +312,7 @@ export function FrontdeskHomeScreen() {
           )}
           {tab === 'ask' && (
             <>
-              <View
-                style={[styles.askContextBar, { borderColor: brandColor }]}
-                onLayout={(e) => setAskContextBarHeight(e.nativeEvent.layout.height)}
-              >
+              <View style={[styles.askContextBar, { borderColor: brandColor }]}>
                 <Text style={styles.askContextText} numberOfLines={1}>
                   {activePractice ? `${t('askAbout')}: ${activePractice.name}` : ''}
                 </Text>
@@ -345,7 +337,6 @@ export function FrontdeskHomeScreen() {
                 placeholder={t('askPlaceholder')}
                 suggestedQuestions={suggestedQuestions}
                 leadingContent={contactFormContent}
-                keyboardVerticalOffset={aboveChatHeight + askContextBarHeight}
                 voice={{
                   recording: voiceChat.recording,
                   busy: voiceChat.busy,
@@ -366,13 +357,26 @@ export function FrontdeskHomeScreen() {
         </>
       )}
 
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>{t('poweredBy')}</Text>
-        <Text style={styles.footerText}>{t('copyright')}</Text>
-        <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_URL)}>
-          <Text style={[styles.footerText, styles.footerLink]}>{t('privacyPolicy')}</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Hidden on the Ask tab: ChatView's KeyboardAvoidingView (see
+          keyboardVerticalOffset above) pads *itself* up when the keyboard
+          opens, on the assumption that nothing sits below it -- since
+          it's a flex sibling, not a parent, of this footer, that padding
+          can't also push the footer up. Left in place, the footer stayed
+          put while the input row rose to clear the keyboard, opening a
+          blank gap between them (and, before the keyboard was even
+          involved, the same "extra stuff below ChatView" pattern is what
+          made the empty/short-conversation state look gapped too). Simplest
+          correct fix: there's nothing for the footer to coexist with once
+          the keyboard can appear, so it doesn't render on this tab. */}
+      {tab !== 'ask' && (
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>{t('poweredBy')}</Text>
+          <Text style={styles.footerText}>{t('copyright')}</Text>
+          <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_URL)}>
+            <Text style={[styles.footerText, styles.footerLink]}>{t('privacyPolicy')}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <Modal visible={pickerOpen === 'practice'} transparent animationType="fade" onRequestClose={() => setPickerOpen(null)}>
         <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setPickerOpen(null)}>
@@ -417,7 +421,134 @@ export function FrontdeskHomeScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <AccountModal
+        visible={accountOpen}
+        onClose={() => setAccountOpen(false)}
+        email={customerEmail}
+        client={client}
+        accessToken={session?.accessToken || ''}
+        onSignOut={() => {
+          setAccountOpen(false);
+          signOut();
+        }}
+        onDeleted={() => {
+          setAccountOpen(false);
+          signOut();
+        }}
+      />
     </SafeAreaView>
+  );
+}
+
+/**
+ * "Account" header button's modal -- shows who's signed in and, since
+ * AccountGate's RegisterForm lets a customer create an account, offers
+ * self-service deletion (required by App Store Guideline 5.1.1(v)).
+ * Mirrors apps/docintel/src/DocIntelHomeScreen.tsx's DeleteAccountModal
+ * pattern: password re-entry as a confirmation step, wired here to the
+ * team-shaped deleteAccount() in @adar/shared-auth (not docintel's
+ * user-shaped one) since Front Desk logs in via the shared team login.
+ * Deleting also removes the customer's own bookings server-side (see
+ * DOMAIN == "scheduling" cascade in adar-core/api/routes/auth.py's
+ * delete-account endpoint) -- there's no separate "cancel your
+ * appointments first" step needed here.
+ */
+function AccountModal({
+  visible,
+  onClose,
+  email,
+  client,
+  accessToken,
+  onSignOut,
+  onDeleted,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  email: string;
+  client: AxiosInstance;
+  accessToken: string;
+  onSignOut: () => void;
+  onDeleted: () => void;
+}) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const close = () => {
+    setConfirmOpen(false);
+    setPassword('');
+    setError(null);
+    onClose();
+  };
+
+  const onDelete = async () => {
+    if (!password || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteAccount(client, accessToken, password);
+      setConfirmOpen(false);
+      setPassword('');
+      onDeleted();
+    } catch (err) {
+      setError(extractApiErrorMessage(err, 'Could not delete your account -- check your password and try again.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+      <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={close}>
+        <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
+          {!confirmOpen ? (
+            <>
+              <Text style={styles.modalTitle}>Profile</Text>
+              <Text style={styles.accountEmailText}>{email || 'Signed in'}</Text>
+              <TouchableOpacity style={styles.profileRow} onPress={onSignOut}>
+                <Text style={styles.profileRowText}>Sign out</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.profileRow} onPress={() => setConfirmOpen(true)}>
+                <Text style={styles.deleteAccountLinkText}>Delete my account</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.modalTitle}>Delete your account</Text>
+              <Text style={styles.deleteWarningText}>
+                This permanently deletes your account and any appointments you've booked, and cannot be undone.
+              </Text>
+              {error ? <Text style={styles.contactError}>{error}</Text> : null}
+              <TextInput
+                style={styles.contactInput}
+                placeholder="Current password"
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+              />
+              <View style={styles.contactActions}>
+                <TouchableOpacity style={styles.contactCancelButton} onPress={() => setConfirmOpen(false)}>
+                  <Text style={styles.contactCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.dangerButton, { opacity: password && !busy ? 1 : 0.5 }]}
+                  disabled={!password || busy}
+                  onPress={onDelete}
+                >
+                  {busy ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.dangerButtonText}>Yes, permanently delete</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
   );
 }
 
@@ -431,6 +562,10 @@ const styles = StyleSheet.create({
   headerButton: {
     flex: 1, backgroundColor: '#f0f2f4', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 10, marginRight: 8,
   },
+  // Practice names run longer than the language/profile labels next to
+  // them, so the practice picker gets twice the width -- avoids truncating
+  // to a stub on anything but the widest phones.
+  headerButtonWide: { flex: 2 },
   headerButtonText: { fontSize: 12, fontWeight: '600', color: '#3a4150', textAlign: 'center' },
   tabBar: { flexDirection: 'row', borderBottomWidth: 1, backgroundColor: '#fff' },
   askContextBar: {
@@ -494,4 +629,11 @@ const styles = StyleSheet.create({
   modalRow: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e5e7eb' },
   modalRowTitle: { fontSize: 14, fontWeight: '600', color: '#14181f' },
   modalRowSubtitle: { fontSize: 12, color: '#9aa2ad', marginTop: 2 },
+  accountEmailText: { fontSize: 13, color: '#5b6472', marginBottom: 16 },
+  profileRow: { paddingVertical: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#e5e7eb' },
+  profileRowText: { fontSize: 14, fontWeight: '600', color: '#14181f' },
+  deleteAccountLinkText: { color: '#b3261e', fontWeight: '600', fontSize: 14 },
+  deleteWarningText: { fontSize: 13, color: '#5b6472', marginBottom: 14, lineHeight: 18 },
+  dangerButton: { backgroundColor: '#b3261e', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, minWidth: 90, alignItems: 'center' },
+  dangerButtonText: { fontSize: 13, fontWeight: '700', color: '#fff' },
 });

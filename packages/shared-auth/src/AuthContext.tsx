@@ -106,13 +106,20 @@ export function AuthProvider({
           setMfaToken(data.mfa_token);
           setEmailHint(data.email_hint);
         } else {
+          // team_id/team_name are only present for team-shaped (adar-core)
+          // deployments; user-shaped (docintel) deployments send
+          // user_id/full_name/email instead -- see AuthSuccessPayload's
+          // comment in types.ts.
           const next: AuthSession = {
             accessToken: data.access_token,
-            teamId: data.team_id,
-            teamName: data.team_name,
+            teamId: data.team_id ?? data.user_id ?? '',
+            teamName: data.team_name ?? data.full_name ?? data.email ?? '',
             role: data.role,
             status: data.status || 'active',
             practiceId: data.practice_id,
+            userId: data.user_id,
+            fullName: data.full_name,
+            email: data.email,
           };
           await saveSession(next);
           setSession(next);
@@ -137,11 +144,14 @@ export function AuthProvider({
         const data = await verifyOtp(client, mfaToken, otp);
         const next: AuthSession = {
           accessToken: data.access_token,
-          teamId: data.team_id,
-          teamName: data.team_name,
+          teamId: data.team_id ?? data.user_id ?? '',
+          teamName: data.team_name ?? data.full_name ?? data.email ?? '',
           role: data.role,
           status: data.status || 'active',
           practiceId: data.practice_id,
+          userId: data.user_id,
+          fullName: data.full_name,
+          email: data.email,
         };
         await saveSession(next);
         setSession(next);

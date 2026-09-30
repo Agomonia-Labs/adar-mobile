@@ -8,9 +8,16 @@
   "scripts": {
     "arcl": "npm run start --workspace apps/arcl",
     "geetabitan": "npm run start --workspace apps/geetabitan",
-    "frontdesk": "npm run start --workspace apps/frontdesk"
+    "frontdesk": "npm run start --workspace apps/frontdesk",
+    "docintel": "npm run start --workspace apps/docintel",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
-    "expo-build-properties": "~0.12.5"
-  }
+    "expo-build-properties": "~0.12.5",
+    "expo": "~51.0.28",
+    "react": "18.2.0",
+    "react-native": "0.74.5"
+  },
+  "version": "1.0.0"
 }

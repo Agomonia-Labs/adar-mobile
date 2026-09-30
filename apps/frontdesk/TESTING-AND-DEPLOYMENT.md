@@ -210,17 +210,19 @@ no access to any inbox to receive a one-time code, so:
    account for review, e.g. `applereview@agomoniai.com` with a password you
    choose. Log in with it once normally (you'll receive the OTP at that
    inbox) to confirm the account is active.
-2. Add that email to the backend's OTP-bypass list so any future login with
-   it (including the reviewer's) skips the OTP step entirely and returns a
-   token from just email + password:
+2. `infra/deploy-scheduling.sh` already whitelists `applereview@agomoniai.com`
+   in `MFA_BYPASS_EMAILS` (durably, through the script itself, not a
+   one-off `gcloud run services update` -- see the note by that variable in
+   the script) -- so running step 0's redeploy is all that's needed for the
+   bypass to take effect. Pass a different value only if you used a
+   different reviewer email:
    ```bash
-   gcloud run services update adar-scheduling-api \
-     --region us-central1 \
-     --update-env-vars MFA_BYPASS_EMAILS=applereview@agomoniai.com
+   MFA_BYPASS_EMAILS=someone-else@agomoniai.com bash infra/deploy-scheduling.sh
    ```
-   (Comma-separate multiple emails if you ever need more than one. This
-   only affects the listed emails -- every other account still goes through
-   the normal OTP flow.)
+   (Pipe-separate multiple emails via the same env var if you ever need
+   more than one -- comma still works too since the value itself is just
+   read as a comma-split list server-side. This only affects the listed
+   emails -- every other account still goes through the normal OTP flow.)
 3. Confirm it worked: log out and back in with that account in the app --
    it should skip straight past the OTP screen.
 
@@ -305,7 +307,20 @@ the questionnaire asks.
   (health, salon, legal, etc.) -- Book a real appointment, ask ADAR
   (chat/voice) to book one instead, see it under My Calendar, and cancel
   it. Bookings made during review are real and can be cancelled afterward
-  from My Calendar."
+  from My Calendar. The Account button in the header also has a
+  self-service 'Delete my account' option (password-confirmed) -- please
+  don't use it on the shared demo account, since that would remove Apple's
+  own ability to sign back in for future reviews; create a separate
+  throwaway account first if you want to test deletion."
+
+**Account deletion (Guideline 5.1.1(v))**: the Account button in the
+header opens a modal with "Delete my account" -- password re-entry,
+permanently deletes the Firestore team profile AND the customer's own
+bookings (see the `DOMAIN == "scheduling"` cascade in
+`adar-core/api/routes/auth.py`'s `POST /api/auth/delete-account`), and
+sends a confirmation email. This ships in the same build as everything
+else above -- no extra step needed, but the backend redeploy in step 0
+below is what actually serves the new endpoint.
 
 **Screenshots (required before you can submit)**: at least one set at
 6.9" (iPhone 16 Pro Max or similar simulator/device) is mandatory; since

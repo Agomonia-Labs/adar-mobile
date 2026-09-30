@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "ADAR DocIntel",
+    "slug": "adar-docintel",
+    "scheme": "adardocintel",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#121F10"
+    },
+    "ios": {
+      "bundleIdentifier": "com.agomoniai.adardocintel",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleDisplayName": "DocIntel",
+        "NSMicrophoneUsageDescription": "ADAR DocIntel uses your microphone to transcribe voice questions."
+      }
+    },
+    "android": {
+      "package": "com.agomoniai.adardocintel",
+      "adaptiveIcon": {
+        "backgroundColor": "#121F10",
+        "foregroundImage": "./assets/icon.png"
+      },
+      "permissions": [
+        "RECORD_AUDIO"
+      ],
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "icon": "./assets/icon.png"
+  }
+}

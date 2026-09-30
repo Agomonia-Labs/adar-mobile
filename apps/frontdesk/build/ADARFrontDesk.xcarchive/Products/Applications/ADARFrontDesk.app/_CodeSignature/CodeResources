@@ -54,11 +54,11 @@
 		</data>
 		<key>Frameworks/hermes.framework/hermes</key>
 		<data>
-		d9G4q+I1c3vfpkMfixD5dyWPKHk=
+		VmYIAW5rNHM4O6S4s0G39Is62+4=
 		</data>
 		<key>Frameworks/libswift_Concurrency.dylib</key>
 		<data>
-		+G+1tBPjIi4fK+UVlrHqUTevvn8=
+		UJJCuNDWJc6Pi3arnLu8zaQ+gqY=
 		</data>
 		<key>Info.plist</key>
 		<data>
@@ -745,6 +745,10 @@
 		<data>
 		XO9GpHETPa/KEeOkIqhZoQ6OIvU=
 		</data>
+		<key>assets/assets/demo-walkthrough.mp4</key>
+		<data>
+		Jq8okH06s7QhucwrJlhL63Ar3W4=
+		</data>
 		<key>assets/assets/icon.png</key>
 		<data>
 		C2kf8YY5aB76tAAqVZ2bxRcss1w=
@@ -755,7 +759,7 @@
 		</data>
 		<key>main.jsbundle</key>
 		<data>
-		VtQMK2ETlfn3v5udq2fg5GEOMuQ=
+		HVTpLmTaJd0xE4yu03Y3itC++Zo=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -848,14 +852,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			dAFfPQ2LDRnBz+U0e/lJeaYq9Zv318TdJMxU6CA2cIE=
+			WFnu4EYuer1lWwTX6GMH5cq9iBxrWu27nKI8gvOpeZM=
 			</data>
 		</dict>
 		<key>Frameworks/libswift_Concurrency.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			Tlf3sKY1NeTxhUtawywKvPjaEjQ5SbLoJSR58w4Gr4Q=
+			RZ6u7qpufAgIGP2NTB5+NysK6Be1v2huncxDhRr6ePE=
 			</data>
 		</dict>
 		<key>PrivacyInfo.xcprivacy</key>
@@ -1550,6 +1554,13 @@
 			nBo0wSHSJHlAjPDqrLNJFUjO0WZVeZuuO19/I4AxS6g=
 			</data>
 		</dict>
+		<key>assets/assets/demo-walkthrough.mp4</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			QMI3DL6A/kjsk/F9I5TlXkZWvQTzF9BS0bWjvnKZvts=
+			</data>
+		</dict>
 		<key>assets/assets/icon.png</key>
 		<dict>
 			<key>hash2</key>
@@ -1568,7 +1579,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			5a/HyWplEbJrtRY+tx6FlBa+qn91i98bx8AX0iWeWDE=
+			wWVlq8iJ3E5I95Uuw7rBHwfHDoU2DPSIowOkBWkbrEI=
 			</data>
 		</dict>
 	</dict>

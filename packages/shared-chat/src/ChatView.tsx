@@ -64,15 +64,19 @@ export interface ChatViewProps {
    *  bar sitting outside the chat. Omit entirely for tenants that don't
    *  need it. */
   leadingContent?: React.ReactNode;
-  /** Extra height (px) to add on top of KeyboardAvoidingView's own
-   *  keyboard-height compensation, for screens where ChatView is NOT the
-   *  direct root of the screen -- e.g. ADAR Front Desk's Ask ADAR tab,
-   *  which sits below a header + tab bar + practice/new-chat bar.
-   *  KeyboardAvoidingView only tracks the keyboard's height, not how far
-   *  down the screen it itself starts, so without this the input row (and
-   *  the last message above it) can end up overlapping once the keyboard
-   *  opens. Omit for a screen where ChatView IS the root (ARCL,
-   *  Geetabitan) -- default 0 matches today's behavior exactly. */
+  /** Leave this at its default (0) for almost every screen, including one
+   *  where ChatView sits below other plain sibling Views (a header, a tab
+   *  bar, a context bar -- as in ADAR Front Desk's Ask ADAR tab).
+   *  KeyboardAvoidingView measures its OWN real on-screen position
+   *  automatically (measureInWindow) every time it renders, which already
+   *  accounts for anything above it in the same view hierarchy -- adding
+   *  that height again here double-counts it, over-padding the input row
+   *  well past the keyboard's actual top edge and eating into the space
+   *  left for the conversation above it (this bit Front Desk once; don't
+   *  reintroduce it). The one case this prop is actually for for: content
+   *  above ChatView that lives in a DIFFERENT native layer ChatView's own
+   *  measurement can't see -- e.g. a native React Navigation header --
+   *  where that header's height is the right (and only) value to pass. */
   keyboardVerticalOffset?: number;
 }
 
@@ -261,6 +265,7 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
           ref={listRef}
           data={messages}
           keyExtractor={(m) => m.id}
+          style={styles.messageList}
           contentContainerStyle={styles.list}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
           ListHeaderComponent={leadingContent ? <View style={styles.leadingContentList}>{leadingContent}</View> : null}
@@ -276,7 +281,7 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
               {item.role === 'user' ? (
                 <Text style={styles.userText}>{item.text}</Text>
               ) : (
-                <>
+                <View>
                   <Markdown
                     style={mdStyles}
                     rules={{
@@ -296,7 +301,7 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
                       </Text>
                     </TouchableOpacity>
                   ) : null}
-                </>
+                </View>
               )}
             </View>
           )}
@@ -354,6 +359,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16, textAlign: 'center' },
   logo: { width: 64, height: 64, borderRadius: 14, marginBottom: 16 },
   chip: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginBottom: 8 },
+  messageList: { flex: 1 },
   list: { padding: 16 },
   bubble: { borderRadius: 16, padding: 12, marginBottom: 10, maxWidth: '92%', overflow: 'hidden' },
   userBubble: { alignSelf: 'flex-end', maxWidth: '85%' },
@@ -374,6 +380,6 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   micText: { fontSize: 18 },
-  speakerButton: { marginTop: 6, alignSelf: 'flex-start' },
+  speakerButton: { marginTop: 10, paddingTop: 2, alignSelf: 'flex-start' },
   speakerText: { fontSize: 12, fontWeight: '600' },
 });
