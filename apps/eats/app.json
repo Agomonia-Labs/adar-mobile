@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "ADAR Eats",
+    "slug": "adar-eats",
+    "scheme": "adareats",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1b2430"
+    },
+    "ios": {
+      "bundleIdentifier": "com.agomoniai.adareats",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleDisplayName": "ADAR Eats",
+        "NSMicrophoneUsageDescription": "ADAR Eats uses your microphone to record a spoken restaurant menu for review.",
+        "NSCameraUsageDescription": "ADAR Eats uses your camera to take photos of menu items.",
+        "NSPhotoLibraryUsageDescription": "ADAR Eats uses your photo library to choose photos of menu items."
+      }
+    },
+    "android": {
+      "package": "com.agomoniai.adareats",
+      "adaptiveIcon": {
+        "backgroundColor": "#1b2430",
+        "foregroundImage": "./assets/icon.png"
+      },
+      "permissions": [
+        "RECORD_AUDIO",
+        "CAMERA"
+      ]
+    },
+    "icon": "./assets/icon.png"
+  }
+}

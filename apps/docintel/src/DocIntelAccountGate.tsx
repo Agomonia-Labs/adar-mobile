@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { LoginScreen, OtpScreen, registerUser, resendVerificationEmail, useAuth } from '@adar/shared-auth';
+import { LoginScreen, OtpScreen, extractErrorMessage, registerUser, resendVerificationEmail, useAuth } from '@adar/shared-auth';
 
 // DocIntel's front gate. LoginScreen/OtpScreen are shared-auth's generic
 // components (no changes needed -- DocIntel's /api/auth/login +
@@ -160,7 +160,7 @@ function RegisterForm({
       const result = await registerUser(client, { email: email.trim(), password, fullName: fullName.trim() });
       await onRegistered(email.trim(), password, result.needs_verify);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Could not create your account. Please try again.');
+      setError(extractErrorMessage(err, 'Could not create your account. Please try again.'));
     } finally {
       setBusy(false);
     }

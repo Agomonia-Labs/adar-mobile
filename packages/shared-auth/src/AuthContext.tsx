@@ -12,6 +12,29 @@ import { clearSession, loadSession, saveSession } from './storage';
 import type { AuthSession, AuthTenantConfig } from './types';
 import { isMfaChallenge } from './types';
 
+/** FastAPI's 422 validation-error responses put `detail` as a LIST of
+ *  Pydantic error objects ({type, loc, msg, input, ctx}) -- not the plain
+ *  string every app-level HTTPException(...) sends for an auth failure.
+ *  Rendering that array straight into a <Text>{error}</Text> (as
+ *  LoginScreen does) crashes with "Objects are not valid as a React
+ *  child (found: object with keys {type, loc, msg, input, ctx})" the
+ *  moment a request hits a validation error instead of an auth error --
+ *  e.g. an empty/malformed field slipping past the form's own checks.
+ *  Normalizes either shape (or anything else) into a plain string. */
+export function extractErrorMessage(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    const messages = detail
+      .map((item) =>
+        item && typeof item === 'object' && 'msg' in item ? String((item as { msg: unknown }).msg) : null
+      )
+      .filter((msg): msg is string => !!msg);
+    if (messages.length > 0) return messages.join(' ');
+  }
+  return fallback;
+}
+
 interface AuthContextValue {
   tenant: AuthTenantConfig;
   client: AxiosInstance;
@@ -125,8 +148,7 @@ export function AuthProvider({
           setSession(next);
         }
       } catch (err) {
-        const anyErr = err as { response?: { data?: { detail?: string } } };
-        setError(anyErr?.response?.data?.detail || 'Login failed. Please try again.');
+        setError(extractErrorMessage(err, 'Login failed. Please try again.'));
         throw err;
       } finally {
         setBusy(false);
@@ -158,8 +180,7 @@ export function AuthProvider({
         setMfaToken(null);
         setEmailHint(null);
       } catch (err) {
-        const anyErr = err as { response?: { data?: { detail?: string } } };
-        setError(anyErr?.response?.data?.detail || 'Invalid code. Please try again.');
+        setError(extractErrorMessage(err, 'Invalid code. Please try again.'));
         throw err;
       } finally {
         setBusy(false);
@@ -174,8 +195,7 @@ export function AuthProvider({
     try {
       await resendOtp(client, mfaToken);
     } catch (err) {
-      const anyErr = err as { response?: { data?: { detail?: string } } };
-      setError(anyErr?.response?.data?.detail || 'Could not resend code.');
+      setError(extractErrorMessage(err, 'Could not resend code.'));
       throw err;
     }
   }, [client, mfaToken]);

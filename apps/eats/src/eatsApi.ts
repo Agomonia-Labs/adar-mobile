@@ -1,0 +1,1371 @@
+import { AxiosInstance } from 'axios';
+
+// Client for the restaurant marketplace routes on adar-rag/backend
+// (/api/restaurant/*, same deployment DocIntel uses -- see App.tsx).
+// Mirrors apps/docintel/src/docintelApi.ts's pattern: this backend has no
+// X-API-Key concept, so every call needs the signed-in user's bearer
+// token passed explicitly (shared-auth's client doesn't auto-attach it).
+function authHeaders(accessToken: string) {
+  return { Authorization: `Bearer ${accessToken}` };
+}
+
+export interface EatsRestaurant {
+  id: string;
+  name: string;
+  cuisine_type: string;
+  address: string;
+  phone: string;
+  email: string;
+  workspace_id: string | null;
+  menu_count: number;
+  min_price: number | null;
+  max_price: number | null;
+  rating_count: number;
+  avg_rating: number | null;
+  verified_rating_count: number;
+  can_manage: boolean;
+  marketplace_visible: boolean;
+}
+
+/** GET /api/restaurant/restaurants?marketplace=true -- every restaurant
+ *  that has opted into the public marketplace, across all workspaces.
+ *  (Owners opt in via POST /api/restaurant/restaurants/{id}/marketplace.) */
+export async function listMarketplaceRestaurants(
+  client: AxiosInstance,
+  accessToken: string
+): Promise<EatsRestaurant[]> {
+  const { data } = await client.get('/api/restaurant/restaurants', {
+    headers: authHeaders(accessToken),
+    params: { marketplace: true },
+  });
+  return data.restaurants as EatsRestaurant[];
+}
+
+export interface EatsMenuItem {
+  id: string;
+  restaurant_id: string;
+  restaurant_name: string;
+  address: string;
+  cuisine_type: string;
+  item_name: string;
+  description: string;
+  category: string;
+  price: number | null;
+  currency: string;
+  quantity: string;
+  dietary_tags: string[];
+  spice_level: string;
+  availability: string;
+  rating_count: number;
+  avg_rating: number | null;
+  verified_rating_count: number;
+  // Signed GCS url, resolved server-side by _menu_row/_menu_search_row for
+  // every menu item (owner-managed or marketplace search result alike) --
+  // declared here (not just on EatsOwnerMenuItem) so a customer-facing
+  // detail popup can show the photo too.
+  image_url: string | null;
+}
+
+/** The standard menu sections every restaurant's items get grouped into
+ *  on screen -- Appetizer/Entree/Dessert etc, the grouping the user asked
+ *  for ("menu category like Aptetizer, Entree, Desert"). The backend's
+ *  voice-scribe extraction (services/restaurant_intelligence.py) is now
+ *  prompted to pick one of these for new items, but `category` has always
+ *  been a free-text column, so older/unexpected values still need to land
+ *  somewhere -- this buckets any string into the closest standard section,
+ *  falling back to "Other" rather than dropping the item or crashing. */
+export const MENU_CATEGORY_ORDER = [
+  'Appetizer',
+  'Soup',
+  'Salad',
+  'Entree',
+  'Side',
+  'Dessert',
+  'Beverage',
+  'Other',
+] as const;
+
+export type MenuCategoryBucket = (typeof MENU_CATEGORY_ORDER)[number];
+
+const MENU_CATEGORY_SYNONYMS: Record<string, MenuCategoryBucket> = {
+  appetizer: 'Appetizer',
+  appetizers: 'Appetizer',
+  starter: 'Appetizer',
+  starters: 'Appetizer',
+  snack: 'Appetizer',
+  snacks: 'Appetizer',
+  soup: 'Soup',
+  soups: 'Soup',
+  salad: 'Salad',
+  salads: 'Salad',
+  entree: 'Entree',
+  entrees: 'Entree',
+  'main course': 'Entree',
+  'main courses': 'Entree',
+  main: 'Entree',
+  mains: 'Entree',
+  curry: 'Entree',
+  curries: 'Entree',
+  rice: 'Entree',
+  'rice dishes': 'Entree',
+  biryani: 'Entree',
+  side: 'Side',
+  sides: 'Side',
+  'side dish': 'Side',
+  'side dishes': 'Side',
+  bread: 'Side',
+  breads: 'Side',
+  dessert: 'Dessert',
+  desserts: 'Dessert',
+  sweet: 'Dessert',
+  sweets: 'Dessert',
+  beverage: 'Beverage',
+  beverages: 'Beverage',
+  drink: 'Beverage',
+  drinks: 'Beverage',
+};
+
+export function menuCategoryBucket(category: string | null | undefined): MenuCategoryBucket {
+  const key = (category || '').trim().toLowerCase();
+  if (!key) return 'Other';
+  if (MENU_CATEGORY_SYNONYMS[key]) return MENU_CATEGORY_SYNONYMS[key];
+  const found = MENU_CATEGORY_ORDER.find((bucket) => bucket.toLowerCase() === key);
+  return found ?? 'Other';
+}
+
+/** GET /api/restaurant/menu/search?marketplace=true -- free-text search
+ *  across every marketplace restaurant's menu. */
+export async function searchMarketplaceMenu(
+  client: AxiosInstance,
+  accessToken: string,
+  query: string
+): Promise<EatsMenuItem[]> {
+  const { data } = await client.get('/api/restaurant/menu/search', {
+    headers: authHeaders(accessToken),
+    params: { query, marketplace: true },
+  });
+  return data.items as EatsMenuItem[];
+}
+
+export interface EatsMenuCompare {
+  query: string;
+  count: number;
+  lowest_price: number | null;
+  highest_price: number | null;
+  items: EatsMenuItem[];
+}
+
+/** GET /api/restaurant/menu/compare?marketplace=true -- same search, plus
+ *  the lowest/highest price seen for that item name across restaurants. */
+export async function compareMarketplaceMenu(
+  client: AxiosInstance,
+  accessToken: string,
+  query: string
+): Promise<EatsMenuCompare> {
+  const { data } = await client.get('/api/restaurant/menu/compare', {
+    headers: authHeaders(accessToken),
+    params: { query, marketplace: true },
+  });
+  return data as EatsMenuCompare;
+}
+
+// ── Owner dashboard: voice -> transcript -> AI-extracted menu -> review ──
+// -> approve -> per-item photo upload. Mirrors the existing web flow in
+// adar-rag/frontend/src/components/RestaurantPanel.jsx's "scribe" tab,
+// which talks to the exact same backend endpoints below. The only piece
+// that didn't already exist anywhere (web or backend) is per-menu-item
+// photo upload -- routes/restaurant.py's POST/DELETE
+// /restaurants/{id}/menu-items/{item_id}/photo and the
+// restaurant_menu_items.image_gcs_path column were added alongside this
+// mobile screen.
+
+export interface EatsOwnerRestaurant extends EatsRestaurant {
+  description: string;
+}
+
+/** GET /api/restaurant/restaurants (no marketplace param) -- restaurants
+ *  reachable in the caller's own scope (personal + any workspace they
+ *  belong to), filtered down here to the ones `can_manage` is true for.
+ *  Pass workspaceId when the owner's restaurants live under a named
+ *  workspace (e.g. "Restaurant workspace") rather than personally. */
+export async function listMyRestaurants(
+  client: AxiosInstance,
+  accessToken: string,
+  workspaceId?: string | null
+): Promise<EatsOwnerRestaurant[]> {
+  const { data } = await client.get('/api/restaurant/restaurants', {
+    headers: authHeaders(accessToken),
+    params: workspaceId ? { workspace_id: workspaceId } : undefined,
+  });
+  return (data.restaurants as EatsOwnerRestaurant[]).filter((r) => r.can_manage);
+}
+
+/** POST /api/restaurant/restaurants/{id}/marketplace -- opt a restaurant
+ *  in or out of the public ADAR Eats marketplace listing. */
+export async function setMarketplaceVisibility(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  visible: boolean
+): Promise<void> {
+  await client.post(
+    `/api/restaurant/restaurants/${restaurantId}/marketplace`,
+    { visible },
+    { headers: authHeaders(accessToken) }
+  );
+}
+
+export interface EatsAgentRun {
+  run_id: string;
+  status: string;
+  // Shape of `result` varies by stage: the scribe workflow's multi-agent
+  // output nests the extracted packet under one of several keys depending
+  // on which agent produced it last (see _restaurant_packet_from_result
+  // in routes/restaurant.py) -- check review_packet/restaurant_packet/
+  // packet/approved_packet in that order, same as the backend does.
+  result?: Record<string, any> | null;
+  error_message?: string | null;
+}
+
+/** Pulls the extracted/edited menu packet out of an agent run's `result`,
+ *  mirroring _restaurant_packet_from_result in routes/restaurant.py. */
+export function extractMenuPacket(run: EatsAgentRun): EatsMenuPacket | null {
+  const result = run.result;
+  if (!result || typeof result !== 'object') return null;
+  for (const key of ['approved_packet', 'review_packet', 'restaurant_packet', 'packet']) {
+    const candidate = result[key];
+    if (candidate && typeof candidate === 'object' && candidate.restaurant_profile) {
+      return candidate as EatsMenuPacket;
+    }
+  }
+  if ((result as any).restaurant_profile) return result as unknown as EatsMenuPacket;
+  return null;
+}
+
+export interface EatsMenuPacketItem {
+  category?: string;
+  item_name: string;
+  price?: number | null;
+  currency?: string;
+  quantity?: string;
+  description?: string;
+  ingredients?: string[];
+  dietary_tags?: string[];
+  spice_level?: string;
+  availability?: string;
+  options?: string[];
+  image_gcs_path?: string | null;
+}
+
+export interface EatsMenuPacket {
+  restaurant_profile: {
+    name: string;
+    description?: string;
+    cuisine_type?: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+  };
+  menu_items: EatsMenuPacketItem[];
+}
+
+/** POST /api/restaurant/scribe-workflow -- upload a recorded menu-walkthrough
+ *  clip; the backend transcribes it and runs the restaurant-menu-scribe AI
+ *  workflow in the background (see RESTAURANT_WORKFLOW_ID in
+ *  routes/restaurant.py). Returns a vertical_agent_runs row (status
+ *  'running' at first) to poll via getAgentRun. */
+export async function submitRestaurantScribe(
+  client: AxiosInstance,
+  accessToken: string,
+  recording: { uri: string; mimeType: string; name: string },
+  opts: { language?: string; intakeTitle?: string; workspaceId?: string | null } = {}
+): Promise<EatsAgentRun> {
+  const form = new FormData();
+  form.append('audio', { uri: recording.uri, name: recording.name, type: recording.mimeType } as unknown as Blob);
+  form.append('authorized_confirmed', 'true');
+  if (opts.language) form.append('language', opts.language);
+  if (opts.intakeTitle) form.append('intake_title', opts.intakeTitle);
+  if (opts.workspaceId) form.append('workspace_id', opts.workspaceId);
+  const { data } = await client.post('/api/restaurant/scribe-workflow', form, {
+    headers: { ...authHeaders(accessToken), 'Content-Type': 'multipart/form-data' },
+  });
+  return data as EatsAgentRun;
+}
+
+/** GET /api/restaurant/agent-runs/{run_id} -- poll while the scribe
+ *  workflow's background task transcribes + extracts the menu packet.
+ *  status goes running -> pending_approval (packet ready to review) or
+ *  error. */
+export async function getAgentRun(
+  client: AxiosInstance,
+  accessToken: string,
+  runId: string
+): Promise<EatsAgentRun> {
+  const { data } = await client.get(`/api/restaurant/agent-runs/${runId}`, {
+    headers: authHeaders(accessToken),
+  });
+  return data as EatsAgentRun;
+}
+
+/** POST /api/restaurant/agent-runs/{run_id}/approve -- owner-reviewed (and
+ *  possibly edited) packet is saved: creates/updates the `restaurants` row
+ *  and replaces its `restaurant_menu_items` rows, then chunks + embeds the
+ *  approved menu for search (server-side, automatic). Returns the saved
+ *  restaurant_id so the caller can move straight to the photo-upload step. */
+export async function approveRestaurantScribe(
+  client: AxiosInstance,
+  accessToken: string,
+  runId: string,
+  approvedPacket: EatsMenuPacket
+): Promise<{ restaurant_id: string }> {
+  const { data } = await client.post(
+    `/api/restaurant/agent-runs/${runId}/approve`,
+    { approved_packet: approvedPacket },
+    { headers: authHeaders(accessToken) }
+  );
+  // The endpoint sets restaurant_id at the top level of the response
+  // (see approve_restaurant_agent_run in routes/restaurant.py).
+  return { restaurant_id: String(data?.restaurant_id || '') };
+}
+
+// image_url now lives on EatsMenuItem itself (see above) -- this extends
+// alias is kept so existing imports of EatsOwnerMenuItem don't need to change.
+export type EatsOwnerMenuItem = EatsMenuItem;
+
+export interface EatsRestaurantDetail {
+  restaurant: EatsOwnerRestaurant;
+  menu_items: EatsOwnerMenuItem[];
+}
+
+/** GET /api/restaurant/restaurants/{id} -- full detail + menu, used after
+ *  approval to get the real (now persisted) menu_item ids for the
+ *  photo-upload step. */
+export async function getRestaurantDetail(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string
+): Promise<EatsRestaurantDetail> {
+  const { data } = await client.get(`/api/restaurant/restaurants/${restaurantId}`, {
+    headers: authHeaders(accessToken),
+  });
+  return data as EatsRestaurantDetail;
+}
+
+/** POST /api/restaurant/restaurants/{id}/menu-items/{item_id}/photo --
+ *  upload (or replace) one menu item's food/menu photo. */
+export async function uploadMenuItemPhoto(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  itemId: string,
+  photo: { uri: string; mimeType: string; name: string }
+): Promise<{ item_id: string; image_url: string | null }> {
+  const form = new FormData();
+  form.append('photo', { uri: photo.uri, name: photo.name, type: photo.mimeType } as unknown as Blob);
+  const { data } = await client.post(
+    `/api/restaurant/restaurants/${restaurantId}/menu-items/${itemId}/photo`,
+    form,
+    { headers: { ...authHeaders(accessToken), 'Content-Type': 'multipart/form-data' } }
+  );
+  return data;
+}
+
+/** DELETE /api/restaurant/restaurants/{id}/menu-items/{item_id}/photo --
+ *  remove a menu item's photo. */
+export async function deleteMenuItemPhoto(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  itemId: string
+): Promise<void> {
+  await client.delete(`/api/restaurant/restaurants/${restaurantId}/menu-items/${itemId}/photo`, {
+    headers: authHeaders(accessToken),
+  });
+}
+
+/** Fields an owner can edit on an already-saved menu item -- everything
+ *  except id/restaurant/photo (photo has its own upload/delete endpoints
+ *  above). All optional: only the fields actually changed need to be sent
+ *  (PATCH semantics -- see MenuItemUpdateRequest in routes/restaurant.py). */
+export interface EatsMenuItemEdits {
+  item_name?: string;
+  category?: string;
+  price?: number | null;
+  currency?: string;
+  quantity?: string;
+  description?: string;
+  dietary_tags?: string[];
+  spice_level?: string;
+  availability?: string;
+}
+
+/** PATCH /api/restaurant/restaurants/{id}/menu-items/{item_id} -- edit a
+ *  menu item's own details (name, category, price, qty, description,
+ *  dietary tags, spice level, availability) after it's already been
+ *  recorded/approved -- previously the only way to fix a typo or price
+ *  was to re-record the whole menu via voice scribe. Returns the updated
+ *  row (including a fresh, possibly-unchanged, signed image_url). */
+export async function updateMenuItem(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  itemId: string,
+  edits: EatsMenuItemEdits
+): Promise<EatsMenuItem> {
+  const { data } = await client.patch(
+    `/api/restaurant/restaurants/${restaurantId}/menu-items/${itemId}`,
+    edits,
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsMenuItem;
+}
+
+// ── Documents tab: past scribe recordings/transcripts ───────────────────
+// Mirrors DocIntel's own Documents screen (GET /api/documents/), but that
+// endpoint only lists personal (workspace-less) docs -- restaurant scribe
+// recordings usually live under a workspace (e.g. "Restaurant workspace"),
+// so GET /api/restaurant/documents exists instead: same `documents` table,
+// filtered to doc_domain='restaurant', visible across any workspace the
+// caller belongs to (see list_restaurant_documents in routes/restaurant.py).
+
+export interface EatsDocument {
+  id: string;
+  original_name: string;
+  filename: string;
+  file_type: string;
+  file_size: number;
+  status: string; // chunking | pending_approval | approved | error | deleted
+  error_message: string | null;
+  doc_type: string | null;
+  doc_domain: string | null;
+  workspace_id: string | null;
+  created_at: string;
+  updated_at: string;
+  // Which of the caller's restaurants this transcript belongs to, when it
+  // can be resolved (restaurants.source_run_id chain -- see
+  // list_restaurant_documents in routes/restaurant.py). null for a
+  // transcript still pending_approval (not yet turned into a restaurant).
+  restaurant_name: string | null;
+}
+
+/** GET /api/restaurant/documents -- every restaurant-menu-scribe recording
+ *  (and its saved transcript) this owner can see, newest first. */
+export async function listRestaurantDocuments(
+  client: AxiosInstance,
+  accessToken: string
+): Promise<EatsDocument[]> {
+  const { data } = await client.get('/api/restaurant/documents', {
+    headers: authHeaders(accessToken),
+  });
+  return data.documents as EatsDocument[];
+}
+
+/** GET /api/documents/{id}/view-url -- the GENERIC DocIntel endpoint (not
+ *  restaurant-specific), reused as-is: for a restaurant-menu-scribe
+ *  document, `gcs_source_path` IS the saved transcript text file (see
+ *  _persist_workflow_transcript in routes/restaurant.py), so this signed
+ *  URL points straight at the transcript, not raw audio. Works for any
+ *  workspace the caller belongs to, same as the restaurant endpoints
+ *  (_get_owned in routes/documents.py already checks workspace
+ *  membership, not just personal ownership). */
+export async function getDocumentViewUrl(
+  client: AxiosInstance,
+  accessToken: string,
+  docId: string
+): Promise<{ url: string }> {
+  const { data } = await client.get(`/api/documents/${docId}/view-url`, {
+    headers: authHeaders(accessToken),
+  });
+  return data;
+}
+
+/** The view-url above is a plain signed GCS URL (no auth header needed) --
+ *  fetch it directly to get the transcript text itself. */
+export async function fetchTranscriptText(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Could not load transcript (HTTP ${response.status})`);
+  return response.text();
+}
+
+// ── Customer chat assistant (menu compare/search via conversation) ─────────
+// Ports apps/docintel/src/docintelApi.ts's streamSse/streamChat pattern
+// verbatim (same backend host, same /api/chat/stream SSE contract) --
+// XMLHttpRequest-based because RN's fetch() doesn't reliably expose a
+// readable stream across iOS/Android/Hermes. See that file's comments for
+// the stall-timeout and split-line-buffering rationale; unchanged here.
+
+export interface ChatStreamHandlers {
+  onToken?: (text: string) => void;
+  onDone?: (payload: Record<string, unknown>) => void;
+  onError?: (message: string) => void;
+}
+
+const CHAT_STALL_TIMEOUT_MS = 90000;
+
+function streamSse(
+  baseURL: string,
+  path: string,
+  accessToken: string,
+  body: Record<string, unknown>,
+  handlers: ChatStreamHandlers
+): { cancel: () => void } {
+  const xhr = new XMLHttpRequest();
+  let lastLength = 0;
+  let buffer = '';
+  let settled = false;
+  let stallTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearStallTimer = () => {
+    if (stallTimer) {
+      clearTimeout(stallTimer);
+      stallTimer = null;
+    }
+  };
+  const armStallTimer = () => {
+    clearStallTimer();
+    stallTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      handlers.onError?.('This is taking longer than expected and may have stalled -- please try again.');
+      xhr.abort();
+    }, CHAT_STALL_TIMEOUT_MS);
+  };
+
+  const processLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) return;
+    const jsonStr = trimmed.slice(5).trim();
+    if (!jsonStr) return;
+    try {
+      const evt = JSON.parse(jsonStr);
+      if (evt.type === 'token') {
+        handlers.onToken?.(evt.text ?? '');
+      } else if (evt.type === 'done') {
+        settled = true;
+        clearStallTimer();
+        handlers.onDone?.(evt);
+        xhr.abort();
+      } else if (evt.type === 'error') {
+        settled = true;
+        clearStallTimer();
+        handlers.onError?.(evt.error ?? 'Stream error');
+        xhr.abort();
+      }
+    } catch {
+      // incomplete line -- onloadend's last-resort pass handles a truncated final line
+    }
+  };
+
+  xhr.open('POST', `${baseURL}${path}`, true);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+
+  xhr.onprogress = () => {
+    if (settled) return;
+    armStallTimer();
+    buffer += xhr.responseText.slice(lastLength);
+    lastLength = xhr.responseText.length;
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      processLine(line);
+      if (settled) break;
+    }
+  };
+  xhr.onerror = () => {
+    if (settled) return;
+    settled = true;
+    clearStallTimer();
+    handlers.onError?.('Network error while streaming');
+  };
+  xhr.onloadend = () => {
+    if (settled) return;
+    clearStallTimer();
+    if (xhr.status >= 400 && xhr.status !== 0) {
+      settled = true;
+      try {
+        const parsed = JSON.parse(xhr.responseText);
+        handlers.onError?.(parsed?.detail || `Request failed (HTTP ${xhr.status})`);
+      } catch {
+        handlers.onError?.(`Request failed (HTTP ${xhr.status})`);
+      }
+      return;
+    }
+    if (buffer.trim()) {
+      processLine(buffer);
+      buffer = '';
+    }
+    if (!settled) {
+      settled = true;
+      handlers.onError?.('The response ended unexpectedly -- please try again.');
+    }
+  };
+  armStallTimer();
+  xhr.send(JSON.stringify(body));
+
+  return { cancel: () => { clearStallTimer(); settled = true; xhr.abort(); } };
+}
+
+/** POST /api/chat/stream with marketplace:true -- the Eats customer-facing
+ *  menu assistant. Unlike DocIntel's streamChat, this caller usually has
+ *  no documents of their own to select, so document_ids is always [] and
+ *  the `marketplace` flag (routes/chat.py's ChatRequest.marketplace) tells
+ *  the backend to widen its "Restaurant DB Source" lookup to every
+ *  marketplace-visible restaurant instead of just ones the caller owns or
+ *  is a workspace member of. */
+export function streamRestaurantChat(
+  baseURL: string,
+  accessToken: string,
+  params: {
+    question: string;
+    history?: { role: string; content: string }[];
+    responseLanguage?: string;
+  },
+  handlers: ChatStreamHandlers
+) {
+  return streamSse(baseURL, '/api/chat/stream', accessToken, {
+    question: params.question,
+    document_ids: [],
+    history: params.history ?? [],
+    marketplace: true,
+    response_language: params.responseLanguage,
+  }, handlers);
+}
+
+// ── Chat sessions (persisted conversations) ─────────────────────────────────
+// Thin wrappers over the existing generic /api/chat/sessions CRUD (routes/
+// chat_sessions.py) -- already used by DocIntel's web app; no mobile app
+// wires it up yet, so this is new plumbing, but no new backend endpoints.
+// Sessions here are always workspace_id-less (personal to the diner),
+// mirroring how list_sessions/create_session default when no workspace_id
+// is passed.
+
+export interface EatsChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface EatsChatSessionSummary {
+  id: string;
+  title: string;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EatsChatSessionDetail {
+  id: string;
+  title: string;
+  messages: EatsChatMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** GET /api/chat/sessions/ -- this diner's past conversations, newest first. */
+export async function listChatSessions(
+  client: AxiosInstance,
+  accessToken: string
+): Promise<EatsChatSessionSummary[]> {
+  const { data } = await client.get('/api/chat/sessions/', {
+    headers: authHeaders(accessToken),
+  });
+  return data as EatsChatSessionSummary[];
+}
+
+/** POST /api/chat/sessions/ -- start a new conversation. Title defaults to
+ *  "New Chat" and is auto-replaced with the first message's text by the
+ *  backend once messages are saved (see save_messages's title=CASE...). */
+export async function createChatSession(
+  client: AxiosInstance,
+  accessToken: string,
+  title?: string
+): Promise<EatsChatSessionDetail> {
+  const { data } = await client.post(
+    '/api/chat/sessions/',
+    { title: title || 'New Chat', document_ids: [] },
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsChatSessionDetail;
+}
+
+/** GET /api/chat/sessions/{id} -- full conversation (resuming an earlier chat). */
+export async function getChatSession(
+  client: AxiosInstance,
+  accessToken: string,
+  sessionId: string
+): Promise<EatsChatSessionDetail> {
+  const { data } = await client.get(`/api/chat/sessions/${sessionId}`, {
+    headers: authHeaders(accessToken),
+  });
+  return data as EatsChatSessionDetail;
+}
+
+/** PATCH /api/chat/sessions/{id}/messages -- save the full message list
+ *  after each completed exchange (the backend replaces the whole array,
+ *  there's no append-one-message endpoint). */
+export async function saveChatSessionMessages(
+  client: AxiosInstance,
+  accessToken: string,
+  sessionId: string,
+  messages: EatsChatMessage[]
+): Promise<void> {
+  await client.patch(
+    `/api/chat/sessions/${sessionId}/messages`,
+    { messages },
+    { headers: authHeaders(accessToken) }
+  );
+}
+
+/** DELETE /api/chat/sessions/{id} */
+export async function deleteChatSession(
+  client: AxiosInstance,
+  accessToken: string,
+  sessionId: string
+): Promise<void> {
+  await client.delete(`/api/chat/sessions/${sessionId}`, {
+    headers: authHeaders(accessToken),
+  });
+}
+
+// ── Carryout cart / orders / checkout ──────────────────────────────────────
+// Mirrors adar-rag/frontend/src/components/RestaurantPanel.jsx's cart +
+// order flow 1:1: the "cart" itself is purely client state (see
+// CartContext.tsx) -- there is no cart table on the backend. "Review
+// order" turns that local cart into a persisted draft order (POST
+// /orders/draft, status='draft'); "Pay & Place Order" then opens a Stripe
+// Checkout session for that draft (POST /orders/{id}/checkout) which, on
+// payment, the backend's webhook auto-submits to the restaurant (status
+// -> 'submitted'). A customer can also submit without paying first via
+// POST /orders/{id}/submit, exposed here as submitOrder, matching the
+// backend's own allowance (not currently used by the web app's UI, but a
+// real endpoint -- wire it in if Eats wants a pay-later/cash option later).
+
+export interface EatsOrderItem {
+  id: string;
+  order_id: string;
+  menu_item_id: string | null;
+  item_name: string;
+  category: string;
+  quantity: number;
+  unit_price: number | null;
+  line_total: number | null;
+  currency: string;
+  instructions: string;
+}
+
+export interface EatsOrder {
+  id: string;
+  restaurant_id: string;
+  restaurant_name: string;
+  restaurant_address: string;
+  restaurant_phone: string;
+  restaurant_email: string;
+  customer_user_id: string;
+  workspace_id: string | null;
+  status: string; // draft | payment_pending | payment_failed | submitted | accepted | rejected | ready_for_pickup | completed
+  fulfillment_type: string;
+  payment_status: string | null;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string;
+  pickup_time_request: string;
+  special_instructions: string;
+  subtotal: number;
+  currency: string;
+  item_count?: number;
+  order_items?: EatsOrderItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EatsOrderResponse {
+  order: EatsOrder;
+  items: EatsOrderItem[];
+  events: Record<string, any>[];
+}
+
+export interface EatsCartItemInput {
+  menu_item_id?: string | null;
+  item_name?: string;
+  category?: string;
+  unit_price?: number | null;
+  currency?: string;
+  quantity: number;
+  instructions?: string;
+}
+
+/** POST /api/restaurant/orders/draft -- turn the local cart into a
+ *  persisted draft order ("Review order" in the web UI). One restaurant
+ *  per cart (the backend rejects a mixed cart with 400). */
+export async function createOrderDraft(
+  client: AxiosInstance,
+  accessToken: string,
+  params: {
+    restaurantId: string;
+    restaurantName?: string;
+    workspaceId?: string | null;
+    items: EatsCartItemInput[];
+    customerName?: string;
+    customerPhone?: string;
+    customerEmail?: string;
+    pickupTimeRequest?: string;
+    specialInstructions?: string;
+    notes?: string;
+  }
+): Promise<EatsOrderResponse> {
+  const { data } = await client.post(
+    '/api/restaurant/orders/draft',
+    {
+      restaurant_id: params.restaurantId,
+      restaurant_name: params.restaurantName || '',
+      workspace_id: params.workspaceId ?? null,
+      items: params.items.map((item) => ({
+        menu_item_id: item.menu_item_id ?? null,
+        item_name: item.item_name || '',
+        category: item.category || '',
+        unit_price: item.unit_price ?? null,
+        currency: item.currency || 'USD',
+        quantity: item.quantity,
+        quantity_ordered: item.quantity,
+        instructions: item.instructions || '',
+      })),
+      customer_name: params.customerName || '',
+      customer_phone: params.customerPhone || '',
+      customer_email: params.customerEmail || '',
+      pickup_time_request: params.pickupTimeRequest || '',
+      special_instructions: params.specialInstructions || '',
+      notes: params.notes || 'Carryout order created from ADAR Eats mobile',
+    },
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsOrderResponse;
+}
+
+/** POST /api/restaurant/orders/{id}/submit -- submit a draft order to the
+ *  restaurant WITHOUT payment (the backend allows this; the web UI just
+ *  doesn't currently expose it, always routing through checkout instead). */
+export async function submitOrder(
+  client: AxiosInstance,
+  accessToken: string,
+  orderId: string,
+  workspaceId?: string | null,
+  notes?: string
+): Promise<EatsOrderResponse> {
+  const { data } = await client.post(
+    `/api/restaurant/orders/${orderId}/submit`,
+    { workspace_id: workspaceId ?? null, notes: notes || '' },
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsOrderResponse;
+}
+
+export interface EatsCheckoutResult {
+  checkout_url: string;
+  session_id: string;
+  order: EatsOrderResponse;
+}
+
+/** POST /api/restaurant/orders/{id}/checkout -- creates a Stripe Checkout
+ *  session for a draft order ("Pay & Place Order"). Open checkout_url with
+ *  WebBrowser.openAuthSessionAsync (see CartScreen.tsx's payAndPlace) so
+ *  completing/cancelling on Stripe's hosted page redirects straight back
+ *  into this app via its adareats:// scheme instead of landing on
+ *  APP_URL -- the DocIntel *web app's* login screen -- which is what the
+ *  backend's success_url/cancel_url default to when a caller doesn't pass
+ *  its own (that default exists for the web app's own carryout cart).
+ *  successUrl/cancelUrl should be built from Linking.createURL(...) with
+ *  the mobile app's own scheme. The backend's webhook marks the order
+ *  paid + submitted once Stripe confirms payment -- refresh the order
+ *  after the browser closes to pick that up. */
+export async function checkoutOrder(
+  client: AxiosInstance,
+  accessToken: string,
+  orderId: string,
+  workspaceId?: string | null,
+  successUrl?: string,
+  cancelUrl?: string
+): Promise<EatsCheckoutResult> {
+  const { data } = await client.post(
+    `/api/restaurant/orders/${orderId}/checkout`,
+    {
+      workspace_id: workspaceId ?? null,
+      success_url: successUrl ?? null,
+      cancel_url: cancelUrl ?? null,
+    },
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsCheckoutResult;
+}
+
+/** GET /api/restaurant/orders -- this diner's own order history + current
+ *  status, newest first. */
+export async function listMyOrders(
+  client: AxiosInstance,
+  accessToken: string,
+  workspaceId?: string | null
+): Promise<EatsOrder[]> {
+  const { data } = await client.get('/api/restaurant/orders', {
+    headers: authHeaders(accessToken),
+    params: workspaceId ? { workspace_id: workspaceId } : undefined,
+  });
+  return data.orders as EatsOrder[];
+}
+
+/** GET /api/restaurant/orders/{id} -- full detail (order + items + event
+ *  timeline) for one order. */
+export async function getOrder(
+  client: AxiosInstance,
+  accessToken: string,
+  orderId: string,
+  workspaceId?: string | null
+): Promise<EatsOrderResponse> {
+  const { data } = await client.get(`/api/restaurant/orders/${orderId}`, {
+    headers: authHeaders(accessToken),
+    params: workspaceId ? { workspace_id: workspaceId } : undefined,
+  });
+  return data as EatsOrderResponse;
+}
+
+/** GET /api/restaurant/owner/orders -- every order placed to a restaurant
+ *  this user manages (excludes still-in-cart draft/payment_pending/
+ *  payment_failed orders, same as the backend's own filter), newest
+ *  first. Pass status to narrow to e.g. 'submitted' for an "outstanding
+ *  orders" view. */
+export async function listOwnerOrders(
+  client: AxiosInstance,
+  accessToken: string,
+  opts: { status?: string; workspaceId?: string | null } = {}
+): Promise<EatsOrder[]> {
+  const { data } = await client.get('/api/restaurant/owner/orders', {
+    headers: authHeaders(accessToken),
+    params: { status: opts.status || '', workspace_id: opts.workspaceId ?? undefined },
+  });
+  return data.orders as EatsOrder[];
+}
+
+async function transitionOwnerOrder(
+  client: AxiosInstance,
+  accessToken: string,
+  orderId: string,
+  action: 'accept' | 'reject' | 'ready' | 'complete',
+  workspaceId?: string | null,
+  notes?: string
+): Promise<EatsOrderResponse> {
+  const { data } = await client.post(
+    `/api/restaurant/owner/orders/${orderId}/${action}`,
+    { workspace_id: workspaceId ?? null, notes: notes || '' },
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsOrderResponse;
+}
+
+/** POST /api/restaurant/owner/orders/{id}/accept -- restaurant accepts a
+ *  submitted carryout order (required step before it can be prepared). */
+export const acceptOrder = (client: AxiosInstance, accessToken: string, orderId: string, workspaceId?: string | null, notes?: string) =>
+  transitionOwnerOrder(client, accessToken, orderId, 'accept', workspaceId, notes);
+
+/** POST /api/restaurant/owner/orders/{id}/reject */
+export const rejectOrder = (client: AxiosInstance, accessToken: string, orderId: string, workspaceId?: string | null, notes?: string) =>
+  transitionOwnerOrder(client, accessToken, orderId, 'reject', workspaceId, notes);
+
+/** POST /api/restaurant/owner/orders/{id}/ready */
+export const readyOrder = (client: AxiosInstance, accessToken: string, orderId: string, workspaceId?: string | null, notes?: string) =>
+  transitionOwnerOrder(client, accessToken, orderId, 'ready', workspaceId, notes);
+
+/** POST /api/restaurant/owner/orders/{id}/complete */
+export const completeOrder = (client: AxiosInstance, accessToken: string, orderId: string, workspaceId?: string | null, notes?: string) =>
+  transitionOwnerOrder(client, accessToken, orderId, 'complete', workspaceId, notes);
+
+// ── Feedback / ratings ──────────────────────────────────────────────────────
+// Lets a customer rate an order and/or a specific menu item; ratings feed
+// straight back into rating_count/avg_rating on menu search, compare, and
+// recommend (see the fb subquery joined into those in routes/restaurant.py)
+// -- "that get reflected in menu item that other customer can search."
+
+export interface EatsFeedback {
+  id: string;
+  restaurant_id: string;
+  restaurant_name: string;
+  menu_item_id: string | null;
+  menu_item_name: string | null;
+  order_id: string | null;
+  customer_user_id: string;
+  customer_email?: string;
+  rating: number;
+  feedback_text: string;
+  language: string;
+  source_type: string;
+  tags: string[];
+  signals: Record<string, any>;
+  verified_order: boolean;
+  status: string;
+  owner_response: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** POST /api/restaurant/feedback/analyze -- optional AI-suggested star
+ *  rating + topic tags from free-text feedback, before submitting. */
+export async function analyzeFeedback(
+  client: AxiosInstance,
+  accessToken: string,
+  params: { feedbackText: string; language?: string; currentRating?: number; restaurantName?: string; menuItemName?: string }
+): Promise<Record<string, any>> {
+  const { data } = await client.post(
+    '/api/restaurant/feedback/analyze',
+    {
+      feedback_text: params.feedbackText,
+      language: params.language || '',
+      current_rating: params.currentRating ?? null,
+      restaurant_name: params.restaurantName || '',
+      menu_item_name: params.menuItemName || '',
+    },
+    { headers: authHeaders(accessToken) }
+  );
+  return data.analysis;
+}
+
+/** POST /api/restaurant/feedback -- submit a 1-5 star rating, optionally
+ *  tied to a specific menu item and/or a past order (marks verified_order
+ *  when it is). */
+export async function submitFeedback(
+  client: AxiosInstance,
+  accessToken: string,
+  params: {
+    restaurantId: string;
+    menuItemId?: string | null;
+    orderId?: string | null;
+    rating: number;
+    feedbackText?: string;
+    tags?: string[];
+  }
+): Promise<EatsFeedback> {
+  const { data } = await client.post(
+    '/api/restaurant/feedback',
+    {
+      restaurant_id: params.restaurantId,
+      menu_item_id: params.menuItemId ?? null,
+      order_id: params.orderId ?? null,
+      rating: params.rating,
+      feedback_text: params.feedbackText || '',
+      tags: params.tags || [],
+    },
+    { headers: authHeaders(accessToken) }
+  );
+  return data.feedback as EatsFeedback;
+}
+
+/** GET /api/restaurant/feedback -- this diner's own submitted feedback. */
+export async function listMyFeedback(client: AxiosInstance, accessToken: string): Promise<EatsFeedback[]> {
+  const { data } = await client.get('/api/restaurant/feedback', { headers: authHeaders(accessToken) });
+  return data.feedback as EatsFeedback[];
+}
+
+/** GET /api/restaurant/owner/feedback -- feedback left on restaurants this
+ *  user manages, for responding to / triaging. */
+export async function listOwnerFeedback(
+  client: AxiosInstance,
+  accessToken: string,
+  status?: string
+): Promise<EatsFeedback[]> {
+  const { data } = await client.get('/api/restaurant/owner/feedback', {
+    headers: authHeaders(accessToken),
+    params: status ? { status } : undefined,
+  });
+  return data.feedback as EatsFeedback[];
+}
+
+/** POST /api/restaurant/owner/feedback/{id}/status -- owner acknowledges/
+ *  responds to/dismisses a piece of feedback. */
+export async function updateFeedbackStatus(
+  client: AxiosInstance,
+  accessToken: string,
+  feedbackId: string,
+  status: 'acknowledged' | 'responded' | 'resolved' | 'dismissed',
+  ownerResponse?: string
+): Promise<EatsFeedback> {
+  const { data } = await client.post(
+    `/api/restaurant/owner/feedback/${feedbackId}/status`,
+    { status, owner_response: ownerResponse || '' },
+    { headers: authHeaders(accessToken) }
+  );
+  return data.feedback as EatsFeedback;
+}
+
+// ── Notifications ────────────────────────────────────────────────────────
+// Backs the header bell: unread badge + a simple list, polled on an
+// interval (see HomeScreen.tsx). New backend endpoints added alongside
+// this mobile screen (GET/POST .../notifications...) -- the
+// restaurant_notifications table and the writes into it already existed
+// (every order transition recorded one), but nothing had ever read it back
+// before this.
+
+export interface EatsNotification {
+  id: string;
+  restaurant_id: string;
+  restaurant_name: string;
+  order_id: string;
+  user_id: string;
+  channel: string;
+  status: string; // unread | read
+  message: string;
+  metadata: Record<string, any>;
+  created_at: string;
+  read_at: string | null;
+}
+
+export async function listNotifications(
+  client: AxiosInstance,
+  accessToken: string,
+  status?: string
+): Promise<{ notifications: EatsNotification[]; unread_count: number }> {
+  const { data } = await client.get('/api/restaurant/notifications', {
+    headers: authHeaders(accessToken),
+    params: status ? { status } : undefined,
+  });
+  return data as { notifications: EatsNotification[]; unread_count: number };
+}
+
+export async function markNotificationRead(client: AxiosInstance, accessToken: string, notificationId: string): Promise<void> {
+  await client.post(`/api/restaurant/notifications/${notificationId}/read`, {}, { headers: authHeaders(accessToken) });
+}
+
+export async function markAllNotificationsRead(client: AxiosInstance, accessToken: string): Promise<void> {
+  await client.post('/api/restaurant/notifications/read-all', {}, { headers: authHeaders(accessToken) });
+}
+
+// ── Advanced search: AND/OR term combination + category filter ────────────
+// routes/restaurant.py's /menu/search takes one free-text query; the user
+// asked for two search boxes combinable with AND/OR plus a category
+// filter ("these two searches are and/or category"). Rather than a new
+// backend endpoint, this runs the existing search per non-empty term and
+// combines client-side -- AND intersects by menu item id, OR unions --
+// then narrows by menuCategoryBucket(). Keeps the backend's existing
+// ranking/relevance per term instead of trying to replicate ILIKE-OR SQL
+// here.
+
+export async function searchMenuAdvanced(
+  client: AxiosInstance,
+  accessToken: string,
+  params: {
+    termA: string;
+    termB?: string;
+    mode?: 'AND' | 'OR';
+    category?: MenuCategoryBucket | '';
+    marketplace?: boolean;
+    workspaceId?: string | null;
+  }
+): Promise<EatsMenuItem[]> {
+  const termA = params.termA.trim();
+  const termB = (params.termB || '').trim();
+  const mode = params.mode || 'AND';
+  const runOne = async (q: string) => {
+    const { data } = await client.get('/api/restaurant/menu/search', {
+      headers: authHeaders(accessToken),
+      params: {
+        query: q,
+        marketplace: params.marketplace ?? true,
+        workspace_id: params.workspaceId ?? undefined,
+      },
+    });
+    return data.items as EatsMenuItem[];
+  };
+
+  let items: EatsMenuItem[];
+  if (!termB) {
+    items = termA ? await runOne(termA) : [];
+  } else if (mode === 'OR') {
+    const [a, b] = await Promise.all([runOne(termA), runOne(termB)]);
+    const byId = new Map<string, EatsMenuItem>();
+    [...a, ...b].forEach((item) => byId.set(item.id, item));
+    items = Array.from(byId.values());
+  } else {
+    const [a, b] = await Promise.all([runOne(termA), runOne(termB)]);
+    const bIds = new Set(b.map((item) => item.id));
+    items = a.filter((item) => bIds.has(item.id));
+  }
+
+  if (params.category) {
+    items = items.filter((item) => menuCategoryBucket(item.category) === params.category);
+  }
+  return items;
+}
+
+// ── Owner: view/edit the restaurant's transcript/menu document ────────────
+// The document is what the chat assistant's document-grounded search is
+// embedded from (see routes/restaurant.py's _reembed_restaurant_document),
+// so keeping it editable -- and auto-resynced whenever a menu item is
+// edited -- is what keeps "menu discovery" answers accurate. Distinct
+// from fetchTranscriptText/getDocumentViewUrl above (that path is the
+// read-only Documents tab, generic across any document type); these are
+// restaurant-scoped and support editing + re-embedding in one call.
+
+export interface EatsRestaurantTranscript {
+  document_id: string | null;
+  text: string;
+  status: string | null;
+  updated_at: string | null;
+  chunk_count?: number | null;
+  error_message?: string | null;
+  menu_items_updated?: number;
+  menu_items_inserted?: number;
+}
+
+/** GET /api/restaurant/restaurants/{id}/transcript */
+export async function getRestaurantTranscript(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string
+): Promise<EatsRestaurantTranscript> {
+  const { data } = await client.get(`/api/restaurant/restaurants/${restaurantId}/transcript`, {
+    headers: authHeaders(accessToken),
+  });
+  return data as EatsRestaurantTranscript;
+}
+
+/** PATCH /api/restaurant/restaurants/{id}/transcript -- saves the owner's
+ *  edited transcript text. The backend both (1) parses the text and
+ *  syncs any recognizable price/quantity/description changes -- plus new
+ *  items -- back onto the live menu (restaurant_menu_items), and (2)
+ *  rebuilds the canonical document text from the now-updated menu and
+ *  re-embeds it (same chunk/embed pipeline a menu item edit triggers in
+ *  the background -- see _resync_restaurant_document_task in
+ *  routes/restaurant.py). The two directions converge: editing a menu
+ *  item's price resyncs this transcript, and editing the transcript's
+ *  price resyncs the menu item. */
+export async function updateRestaurantTranscript(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  text: string
+): Promise<EatsRestaurantTranscript> {
+  const { data } = await client.patch(
+    `/api/restaurant/restaurants/${restaurantId}/transcript`,
+    { text },
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsRestaurantTranscript;
+}
+
+export interface EatsTranscriptChunkSummary {
+  index: number;
+  word_count: number;
+  char_count?: number;
+  gcs_path?: string;
+}
+
+export interface EatsTranscriptChunksResponse {
+  document: {
+    status?: string | null;
+    chunk_count?: number | null;
+    error_message?: string | null;
+    filename?: string;
+    total_chunks?: number;
+    updated_at?: string | null;
+  };
+  chunks: EatsTranscriptChunkSummary[];
+}
+
+/** GET /api/restaurant/restaurants/{id}/transcript/chunks -- the same
+ *  chunk breakdown the web Documents tab's ChunksViewer shows (one row
+ *  per chunk, with word count), so the owner can see whether chunking
+ *  and re-embedding actually happened after a menu or transcript edit,
+ *  not just that the save call returned 200. */
+export async function getRestaurantTranscriptChunks(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string
+): Promise<EatsTranscriptChunksResponse> {
+  const { data } = await client.get(`/api/restaurant/restaurants/${restaurantId}/transcript/chunks`, {
+    headers: authHeaders(accessToken),
+  });
+  return data as EatsTranscriptChunksResponse;
+}
+
+/** GET /api/restaurant/restaurants/{id}/transcript/chunks/{index} -- a
+ *  single chunk's full text, for tapping into a chunk from the list. */
+export async function getRestaurantTranscriptChunkContent(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  chunkIndex: number
+): Promise<{ chunk_index: number; content: string }> {
+  const { data } = await client.get(
+    `/api/restaurant/restaurants/${restaurantId}/transcript/chunks/${chunkIndex}`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data as { chunk_index: number; content: string };
+}
+
+// ── Voice: speech-to-text input, text-to-speech output ──────────────────────
+// Same backend endpoints DocIntel's mobile app already uses (routes/
+// voice.py) -- no new backend work needed, just wiring these up from the
+// Eats side. See apps/docintel/src/docintelApi.ts's transcribeVoice/
+// speakText for the reference implementation this mirrors.
+
+/** POST /api/voice/transcribe -- uploads a recorded clip, gets back the
+ *  transcribed text. `language` is a plain-language hint ("Bengali",
+ *  "Spanish", ...) from i18n/languages.ts's sttHint -- optional, but
+ *  transcription accuracy for non-English audio is noticeably better with
+ *  it than letting the backend guess. */
+export async function transcribeVoice(
+  client: AxiosInstance,
+  accessToken: string,
+  recording: { uri: string; mimeType: string; name: string },
+  language = ''
+): Promise<{ text: string }> {
+  const form = new FormData();
+  form.append('audio', { uri: recording.uri, name: recording.name, type: recording.mimeType } as unknown as Blob);
+  if (language) form.append('language', language);
+  const { data } = await client.post('/api/voice/transcribe', form, {
+    headers: { ...authHeaders(accessToken), 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+}
+
+/** POST /api/voice/speak -- server-side text-to-speech (Google Cloud TTS)
+ *  for languages with a proven, higher-quality voice available there
+ *  (routes/voice.py's TTS_VOICE_BY_LANGUAGE) -- used instead of on-device
+ *  expo-speech for those languages only (see ListenButton.tsx). Returns
+ *  base64 MP3; play it with expo-av's Audio.Sound via a
+ *  `data:audio/mpeg;base64,...` URI. */
+export async function speakText(
+  client: AxiosInstance,
+  accessToken: string,
+  text: string,
+  language: string
+): Promise<{ audioBase64: string; mimeType: string }> {
+  const { data } = await client.post(
+    '/api/voice/speak',
+    { text, language },
+    { headers: authHeaders(accessToken), timeout: 30000 }
+  );
+  return { audioBase64: data.audio_base64, mimeType: data.mime_type };
+}
+
+// ── Account deletion (App Store Review Guideline 5.1.1(v)) ─────────────────
+// ADAR Eats shares its backend (adar-rag/backend) with ADAR DocIntel, so
+// this mirrors docintel/src/docintelApi.ts's deleteAccount /
+// getAccountDeletionImpact exactly (DELETE /api/auth/account, re-entering
+// the password as the confirm step -- see auth/router.py's
+// delete_own_account). The one Eats-specific addition is in AccountScreen.tsx:
+// the backend's own deletion-impact endpoint only knows about shared
+// *workspaces* (DocIntel's concept), not restaurants, so AccountScreen
+// separately calls listMyRestaurants to warn an owner that deleting their
+// account also pulls their restaurant off the marketplace.
+export interface AccountDeletionImpact {
+  owned_shared_workspaces: { id: string; name: string; member_count: number }[];
+}
+
+export async function getAccountDeletionImpact(client: AxiosInstance, accessToken: string): Promise<AccountDeletionImpact> {
+  const { data } = await client.get<AccountDeletionImpact>('/api/auth/account/deletion-impact', {
+    headers: authHeaders(accessToken),
+  });
+  return data;
+}
+
+export async function deleteAccount(client: AxiosInstance, accessToken: string, password: string): Promise<void> {
+  await client.delete('/api/auth/account', { data: { password }, headers: authHeaders(accessToken) });
+}

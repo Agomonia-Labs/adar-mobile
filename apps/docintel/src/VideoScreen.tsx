@@ -11,6 +11,8 @@ import {
   View,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@adar/shared-auth';
 import {
   VideoDocumentSummary,
@@ -26,6 +28,13 @@ import { SwipeableRow } from './SwipeableRow';
 import { useWorkspace } from './WorkspaceContext';
 
 const BRAND = '#2e7d4f';
+
+interface PickedVideo {
+  uri: string;
+  name: string;
+  mimeType: string;
+  size: number;
+}
 
 /** Same mm:ss / h:mm:ss formatting as VideoDetailScreen.tsx's formatTime(). */
 function formatDuration(seconds: number | null | undefined): string | null {
@@ -141,6 +150,9 @@ export function VideoScreen({ onOpenVideo }: { onOpenVideo: (docId: string, name
               >
                 <Text style={styles.cardTitle} numberOfLines={1}>{item.original_name}</Text>
                 <View style={styles.cardInfoRow}>
+                  <Text style={[styles.profilePill, item.processing_profile === 'cultural_performance' && styles.profilePillCultural]}>
+                    {item.processing_profile === 'cultural_performance' ? 'Cultural performance' : 'Standard video'}
+                  </Text>
                   {formatDuration(item.duration_seconds) ? (
                     <Text style={styles.cardInfoText}>{formatDuration(item.duration_seconds)}</Text>
                   ) : null}
@@ -207,33 +219,39 @@ function UploadVideoModal({ visible, workspaceId, onClose, onUploaded }: {
 
   const reset = () => { setBusy(false); setProgress(0); setStage(''); setError(null); setRightsConfirmed(false); };
 
-  const pickAndUpload = async () => {
-    if (!session) return;
+  const canChooseVideo = () => {
+    if (!session) return false;
     if (!rightsConfirmed) {
       Alert.alert('Confirm rights', 'Please confirm you have the rights to upload and process this video.');
+      return false;
+    }
+    return true;
+  };
+
+  const uploadPickedVideo = async (file: PickedVideo) => {
+    if (!session) return;
+    if (!file.size) {
+      setError('The selected video size could not be determined. Try choosing it from Files instead.');
       return;
     }
-    const result = await DocumentPicker.getDocumentAsync({ type: 'video/*', copyToCacheDirectory: true });
-    if (result.canceled || !result.assets?.length) return;
-    const file = result.assets[0];
     setBusy(true);
     setError(null);
     try {
       setStage('Requesting upload session…');
       const session1 = await createVideoUploadSession(client, session.accessToken, {
         filename: file.name,
-        contentType: file.mimeType || 'video/mp4',
-        fileSize: file.size || 0,
+        contentType: file.mimeType,
+        fileSize: file.size,
         workspaceId,
       });
       setStage('Uploading video…');
-      await uploadVideoFile(session1.upload_url, file.uri, file.mimeType || 'video/mp4', (pct) => setProgress(pct));
+      await uploadVideoFile(session1.upload_url, file.uri, file.mimeType, (pct) => setProgress(pct));
       setStage('Finishing upload…');
       await completeVideoUpload(client, session.accessToken, {
         docId: session1.doc_id,
         filename: file.name,
-        contentType: file.mimeType || 'video/mp4',
-        fileSize: file.size || 0,
+        contentType: file.mimeType,
+        fileSize: file.size,
         gcsSourcePath: session1.gcs_source_path,
         workspaceId,
         rightsConfirmed: true,
@@ -247,6 +265,65 @@ function UploadVideoModal({ visible, workspaceId, onClose, onUploaded }: {
     } catch (err) {
       setBusy(false);
       setError(extractDocIntelError(err, 'Video upload failed.'));
+    }
+  };
+
+  const pickFromFiles = async () => {
+    if (!canChooseVideo()) return;
+    const result = await DocumentPicker.getDocumentAsync({ type: 'video/*', copyToCacheDirectory: true });
+    if (result.canceled || !result.assets?.length) return;
+    const file = result.assets[0];
+    const info = file.size ? null : await FileSystem.getInfoAsync(file.uri, { size: true });
+    await uploadPickedVideo({
+      uri: file.uri,
+      name: file.name,
+      mimeType: file.mimeType || 'video/mp4',
+      size: file.size || (info?.exists ? info.size || 0 : 0),
+    });
+  };
+
+  const pickFromPhotos = async () => {
+    if (!canChooseVideo()) return;
+    setError(null);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Photo Library access needed',
+          'Allow Photo Library access in device settings to choose a video, or use Choose from Files.'
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        allowsEditing: false,
+        quality: 1,
+        preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      setBusy(true);
+      setStage('Preparing selected video…');
+      const asset = result.assets[0];
+      const info = asset.fileSize ? null : await FileSystem.getInfoAsync(asset.uri, { size: true });
+      const size = asset.fileSize || (info?.exists ? info.size || 0 : 0);
+      if (!size) {
+        setBusy(false);
+        setStage('');
+        setError('The selected video size could not be determined. Try choosing it from Files instead.');
+        return;
+      }
+      const mimeType = asset.mimeType || 'video/mp4';
+      const extension = mimeType === 'video/quicktime' ? 'mov' : 'mp4';
+      await uploadPickedVideo({
+        uri: asset.uri,
+        name: asset.fileName || `video-${Date.now()}.${extension}`,
+        mimeType,
+        size,
+      });
+    } catch (err) {
+      setBusy(false);
+      setStage('');
+      setError(extractDocIntelError(err, 'Photo Library could not be opened. Try Choose from Files.'));
     }
   };
 
@@ -271,8 +348,11 @@ function UploadVideoModal({ visible, workspaceId, onClose, onUploaded }: {
                 <Switch value={rightsConfirmed} onValueChange={setRightsConfirmed} trackColor={{ true: BRAND }} />
                 <Text style={styles.rightsText}>I have the rights to upload and process this video.</Text>
               </View>
-              <TouchableOpacity style={[styles.primaryButton, { opacity: rightsConfirmed ? 1 : 0.5 }]} disabled={!rightsConfirmed} onPress={pickAndUpload}>
-                <Text style={styles.primaryButtonText}>Choose video file</Text>
+              <TouchableOpacity style={[styles.primaryButton, { opacity: rightsConfirmed ? 1 : 0.5 }]} disabled={!rightsConfirmed} onPress={pickFromPhotos}>
+                <Text style={styles.primaryButtonText}>Choose from Photo Library</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.fileButton, { opacity: rightsConfirmed ? 1 : 0.5 }]} disabled={!rightsConfirmed} onPress={pickFromFiles}>
+                <Text style={styles.fileButtonText}>Choose from Files</Text>
               </TouchableOpacity>
             </>
           )}
@@ -298,6 +378,11 @@ const styles = StyleSheet.create({
   cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
   cardInfoRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4, gap: 10 },
   cardInfoText: { fontSize: 12, color: '#5b6472' },
+  profilePill: {
+    fontSize: 11, color: '#536171', fontWeight: '700', backgroundColor: '#eef1f4',
+    borderRadius: 5, paddingHorizontal: 7, paddingVertical: 2,
+  },
+  profilePillCultural: { color: '#7a4800', backgroundColor: '#fff1d6' },
   cardErrorText: { fontSize: 12, color: '#c0392b', marginTop: 6 },
   statusText: { fontSize: 12, fontWeight: '700', color: '#a06a00' },
   statusReady: { color: '#1e7e34' },
@@ -314,6 +399,8 @@ const styles = StyleSheet.create({
   stageText: { fontSize: 13, color: '#5b6472', marginTop: 8 },
   primaryButton: { backgroundColor: BRAND, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginBottom: 8 },
   primaryButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  fileButton: { borderWidth: 1, borderColor: BRAND, borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginBottom: 8 },
+  fileButtonText: { color: BRAND, fontWeight: '700', fontSize: 15 },
   cancelButton: { alignItems: 'center', paddingVertical: 8 },
   cancelButtonText: { color: '#5b6472', fontWeight: '600', fontSize: 14 },
 });

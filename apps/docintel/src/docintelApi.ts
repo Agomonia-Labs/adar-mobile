@@ -631,7 +631,7 @@ export async function askCourseQuestion(
 
 export function extractDocIntelError(err: unknown, fallback: string): string {
   const anyErr = err as { response?: { data?: { detail?: string } }; message?: string; isTimeout?: boolean };
-  return anyErr?.response?.data?.detail || (anyErr?.isTimeout ? anyErr.message : undefined) || fallback;
+  return anyErr?.response?.data?.detail || anyErr?.message || fallback;
 }
 
 // ── Video (routes/video.py, prefix /api/video) ──────────────────────────────
@@ -651,6 +651,8 @@ export interface VideoUploadSession {
   method: string;
   headers: Record<string, string>;
 }
+
+export type VideoProcessingProfile = 'standard' | 'cultural_performance';
 
 /** GET /api/video/documents's per-row shape -- a LEFT JOIN of documents +
  *  video_documents (plus the same progress-from-metadata merge as
@@ -679,6 +681,7 @@ export interface VideoDocumentSummary {
   progress_pct: number | null;
   progress_message: string | null;
   progress_updated_at: string | null;
+  processing_profile: VideoProcessingProfile;
 }
 
 /** GET /api/video/documents -- the video-specific list endpoint (mirrors
@@ -799,12 +802,14 @@ export interface ProcessVideoOptions {
   /** 'auto' | 'en-US' | 'hi-IN' | 'bn-IN' | 'ar-XA' | 'es-ES' -- same set
    *  VideoPanel.jsx's "Transcript language" <select> offers. */
   transcriptLanguage?: string;
+  processingProfile?: VideoProcessingProfile;
 }
 
 /** POST /api/video/{doc_id}/process -- the explicit "Process Video" call,
- *  same endpoint and same default option values (max_frames 12,
- *  segment_seconds 60, embed_after_processing true, transcript_language
- *  'auto') as the web app's Process Video form. Idempotent/resumable on
+ *  using the selected standard or cultural-performance profile. The mobile
+ *  form starts with the standard defaults (12 frames and 60-second segments)
+ *  and raises cultural processing to at least 24 frames and 30-second-or-less
+ *  segments, matching the web app. Idempotent/resumable on
  *  the backend (create_or_reuse_video_job reuses an active job, or
  *  re-queues an errored one from its last checkpoint) -- so calling this
  *  again after a failure IS the retry path, exactly like re-clicking
@@ -814,7 +819,14 @@ export async function processVideoDocument(
   accessToken: string,
   docId: string,
   options: ProcessVideoOptions = {}
-): Promise<{ message: string; doc_id: string; job_id: string | null; job_reused: boolean; dispatch_mode: string }> {
+): Promise<{
+  message: string;
+  doc_id: string;
+  job_id: string | null;
+  job_reused: boolean;
+  dispatch_mode: string;
+  processing_profile: VideoProcessingProfile;
+}> {
   const { data } = await client.post(
     `/api/video/${docId}/process`,
     {
@@ -824,6 +836,7 @@ export async function processVideoDocument(
       segment_seconds: options.segmentSeconds ?? 60,
       embed_after_processing: options.embedAfterProcessing ?? true,
       transcript_language: options.transcriptLanguage ?? 'auto',
+      processing_profile: options.processingProfile ?? 'standard',
     },
     { headers: authHeaders(accessToken) }
   );
@@ -887,6 +900,7 @@ export interface VideoStatus {
   processing_job: VideoProcessingJob | null;
   checkpoint_summary: VideoCheckpointSummary | null;
   processing_stalled: boolean;
+  processing_profile: VideoProcessingProfile;
 }
 
 /** Same readiness gate as VideoPanel.jsx's isVideoReadyForTimeline(). */
@@ -915,6 +929,26 @@ export interface VideoSegment {
   title: string | null;
   summary: string | null;
   transcript: string | null;
+  metadata?: {
+    processing_profile?: VideoProcessingProfile;
+    cultural_analysis?: CulturalPerformanceAnalysis;
+    [key: string]: unknown;
+  } | null;
+}
+
+export interface CulturalPerformanceAnalysis {
+  analysis_status: 'completed' | 'unavailable' | 'not_selected' | string;
+  performance_form?: string;
+  narrative_context?: string;
+  movement_analysis?: string;
+  music_analysis?: string;
+  expressive_cues?: string[];
+  cultural_context?: string;
+  interpretive_themes?: string[];
+  evidence?: string[];
+  confidence?: number;
+  interpretation_guardrail?: string;
+  error?: string;
 }
 
 export interface VideoFrame {

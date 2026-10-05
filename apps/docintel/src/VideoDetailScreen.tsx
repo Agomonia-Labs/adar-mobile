@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -17,7 +17,9 @@ import { ResizeMode, Video } from 'expo-av';
 import { useAuth } from '@adar/shared-auth';
 import {
   ProcessVideoOptions,
+  CulturalPerformanceAnalysis,
   VideoFrame,
+  VideoProcessingProfile,
   VideoSegment,
   VideoStatus,
   askVideo,
@@ -36,6 +38,29 @@ const BRAND = '#2e7d4f';
 const BLUE = '#1d6fa5';
 const AMBER = '#a06a00';
 const RED = '#c0392b';
+
+const VIDEO_PROFILES: { value: VideoProcessingProfile; label: string; description: string }[] = [
+  {
+    value: 'standard',
+    label: 'Standard Video',
+    description: 'Meetings, training, demonstrations, interviews, and general video knowledge.',
+  },
+  {
+    value: 'cultural_performance',
+    label: 'Cultural Performance',
+    description: 'Movement, music, observable expression, narrative, and cultural context.',
+  },
+];
+
+function profileLabel(profile?: VideoProcessingProfile | null): string {
+  return profile === 'cultural_performance'
+    ? 'Cultural Performance Intelligence'
+    : 'Standard Video Intelligence';
+}
+
+function profileShortLabel(profile?: VideoProcessingProfile | null): string {
+  return profile === 'cultural_performance' ? 'Cultural' : 'Standard';
+}
 
 /** Same 6 options VideoPanel.jsx's "Transcript language" <select> offers,
  *  in the same order -- codes match routes/video.py's accepted values. */
@@ -166,6 +191,8 @@ export function VideoDetailScreen({ docId, docName, onBack }: { docId: string; d
   const [rightsConfirmed, setRightsConfirmed] = useState(true);
   const [embedAfterProcessing, setEmbedAfterProcessing] = useState(true);
   const [transcriptLanguage, setTranscriptLanguage] = useState('auto');
+  const [processingProfile, setProcessingProfile] = useState<VideoProcessingProfile>('standard');
+  const profileLoaded = useRef(false);
   const [maxFrames, setMaxFrames] = useState('12');
   const [segmentSeconds, setSegmentSeconds] = useState('60');
   const [processing, setProcessing] = useState(false);
@@ -219,6 +246,21 @@ export function VideoDetailScreen({ docId, docName, onBack }: { docId: string; d
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  useEffect(() => {
+    if (!profileLoaded.current && status?.processing_profile) {
+      setProcessingProfile(status.processing_profile);
+      profileLoaded.current = true;
+    }
+  }, [status?.processing_profile]);
+
+  const selectProcessingProfile = (profile: VideoProcessingProfile) => {
+    setProcessingProfile(profile);
+    if (profile === 'cultural_performance') {
+      setMaxFrames((current) => String(Math.max(Number(current) || 0, 24)));
+      setSegmentSeconds((current) => String(Math.min(Number(current) || 60, 30)));
+    }
+  };
+
   const handleManualRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -249,9 +291,10 @@ export function VideoDetailScreen({ docId, docName, onBack }: { docId: string; d
         transcriptLanguage,
         maxFrames: Number(maxFrames) || 12,
         segmentSeconds: Number(segmentSeconds) || 60,
+        processingProfile,
       };
-      await processVideoDocument(client, session.accessToken, docId, options);
-      setProcessMessage('Video processing started.');
+      const result = await processVideoDocument(client, session.accessToken, docId, options);
+      setProcessMessage(`${profileLabel(result.processing_profile || processingProfile)} processing started.`);
       setTimeline(null);
       setFrameUrls({});
       await refresh();
@@ -339,6 +382,7 @@ export function VideoDetailScreen({ docId, docName, onBack }: { docId: string; d
             <View style={styles.metricsRow}>
               <Metric label="Document" value={status?.document_status || '-'} />
               <Metric label="Video" value={status?.processing_status || 'not processed'} />
+              <Metric label="Profile" value={profileShortLabel(status?.processing_profile || processingProfile)} />
               <Metric label="Progress" value={`${progress.progressPct}%`} />
               <Metric label="Chunks" value={String(status?.chunk_count ?? 0)} />
               <Metric label="Duration" value={status?.duration_seconds ? formatTime(status.duration_seconds) : '-'} />
@@ -393,6 +437,36 @@ export function VideoDetailScreen({ docId, docName, onBack }: { docId: string; d
                 exactly like re-clicking "Process Video" on desktop. */}
             <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Process video</Text>
             <View style={styles.processCard}>
+              <Text style={styles.fieldLabel}>Processing profile</Text>
+              <View style={styles.profileControl} accessibilityRole="tablist">
+                {VIDEO_PROFILES.map((profile) => {
+                  const selected = processingProfile === profile.value;
+                  return (
+                    <TouchableOpacity
+                      key={profile.value}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected }}
+                      style={[
+                        styles.profileButton,
+                        selected && styles.profileButtonActive,
+                        selected && profile.value === 'cultural_performance' && styles.profileButtonCultural,
+                      ]}
+                      onPress={() => selectProcessingProfile(profile.value)}
+                    >
+                      <Text style={[styles.profileButtonText, selected && styles.profileButtonTextActive]}>
+                        {profile.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View style={[styles.profileDescription, processingProfile === 'cultural_performance' && styles.profileDescriptionCultural]}>
+                <Text style={styles.profileDescriptionTitle}>{profileLabel(processingProfile)}</Text>
+                <Text style={styles.profileDescriptionText}>
+                  {VIDEO_PROFILES.find((profile) => profile.value === processingProfile)?.description}
+                </Text>
+              </View>
+
               <View style={styles.checkRow}>
                 <Switch value={rightsConfirmed} onValueChange={setRightsConfirmed} trackColor={{ true: BRAND }} />
                 <Text style={styles.checkLabel}>Rights confirmed</Text>
@@ -445,7 +519,13 @@ export function VideoDetailScreen({ docId, docName, onBack }: { docId: string; d
                 disabled={processing}
                 onPress={handleProcess}
               >
-                {processing ? <ActivityIndicator color="#fff" /> : <Text style={styles.processButtonText}>Process video</Text>}
+                {processing ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.processButtonText}>
+                    {processingProfile === 'cultural_performance' ? 'Process cultural performance' : 'Process video'}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -459,6 +539,7 @@ export function VideoDetailScreen({ docId, docName, onBack }: { docId: string; d
                   </View>
                   {seg.title ? <Text style={styles.segmentTitle}>{seg.title}</Text> : null}
                   {seg.summary ? <Text style={styles.segmentSummary}>{seg.summary}</Text> : null}
+                  <CulturalAnalysis analysis={seg.metadata?.cultural_analysis} />
                 </View>
               ))
             ) : (
@@ -550,6 +631,44 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function CulturalAnalysis({ analysis }: { analysis?: CulturalPerformanceAnalysis }) {
+  if (!analysis || analysis.analysis_status !== 'completed') return null;
+  const rows: { label: string; value: string }[] = [
+    { label: 'Performance form', value: analysis.performance_form || '' },
+    { label: 'Narrative context', value: analysis.narrative_context || '' },
+    { label: 'Movement', value: analysis.movement_analysis || '' },
+    { label: 'Music and rhythm', value: analysis.music_analysis || '' },
+    { label: 'Expressive cues', value: joinValues(analysis.expressive_cues) },
+    { label: 'Cultural context', value: analysis.cultural_context || '' },
+    { label: 'Interpretive themes', value: joinValues(analysis.interpretive_themes) },
+    { label: 'Evidence', value: joinValues(analysis.evidence) },
+  ].filter((row) => row.value);
+  if (!rows.length) return null;
+  return (
+    <View style={styles.culturalAnalysis}>
+      <View style={styles.culturalAnalysisHead}>
+        <Text style={styles.culturalAnalysisTitle}>Cultural Performance Intelligence</Text>
+        <Text style={styles.culturalConfidence}>
+          {Math.round(Number(analysis.confidence || 0) * 100)}% confidence
+        </Text>
+      </View>
+      {rows.map((row) => (
+        <View key={row.label} style={styles.culturalRow}>
+          <Text style={styles.culturalLabel}>{row.label}</Text>
+          <Text style={styles.culturalValue}>{row.value}</Text>
+        </View>
+      ))}
+      {analysis.interpretation_guardrail ? (
+        <Text style={styles.culturalGuardrail}>{analysis.interpretation_guardrail}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+function joinValues(value?: string[]): string {
+  return Array.isArray(value) ? value.filter(Boolean).join('; ') : '';
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: '#f7f8fa' },
   header: {
@@ -597,6 +716,19 @@ const styles = StyleSheet.create({
   statusErrorText: { color: RED, backgroundColor: '#fdecea', padding: 10, borderRadius: 10, marginBottom: 12, fontSize: 12 },
 
   processCard: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e5ea', padding: 14 },
+  profileControl: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  profileButton: {
+    flex: 1, minHeight: 44, borderWidth: 1, borderColor: '#cfd5dc', borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f7f8fa',
+  },
+  profileButtonActive: { borderColor: BRAND, backgroundColor: BRAND },
+  profileButtonCultural: { borderColor: '#a86800', backgroundColor: '#a86800' },
+  profileButtonText: { fontSize: 12, color: '#374151', fontWeight: '700', textAlign: 'center' },
+  profileButtonTextActive: { color: '#fff' },
+  profileDescription: { backgroundColor: '#f1f6f3', borderRadius: 8, padding: 10, marginBottom: 14 },
+  profileDescriptionCultural: { backgroundColor: '#fff4df' },
+  profileDescriptionTitle: { color: '#18231d', fontSize: 12, fontWeight: '800', marginBottom: 3 },
+  profileDescriptionText: { color: '#536171', fontSize: 12, lineHeight: 17 },
   checkRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   checkLabel: { marginLeft: 10, fontSize: 13, color: '#374151' },
   fieldLabel: { fontSize: 12, fontWeight: '700', color: '#5b6472', marginBottom: 6, marginTop: 4 },
@@ -624,6 +756,14 @@ const styles = StyleSheet.create({
   segmentType: { fontSize: 11, color: '#9aa3b2', textTransform: 'uppercase', fontWeight: '700' },
   segmentTitle: { fontSize: 14, fontWeight: '700', color: '#14181f', marginTop: 6 },
   segmentSummary: { fontSize: 13, color: '#374151', marginTop: 4, lineHeight: 18 },
+  culturalAnalysis: { backgroundColor: '#fff8e9', borderLeftWidth: 3, borderLeftColor: '#b66d00', borderRadius: 6, padding: 10, marginTop: 10 },
+  culturalAnalysisHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8 },
+  culturalAnalysisTitle: { flex: 1, color: '#5e3900', fontSize: 12, fontWeight: '800' },
+  culturalConfidence: { color: '#80520b', fontSize: 10, fontWeight: '700' },
+  culturalRow: { borderTopWidth: 1, borderTopColor: '#f0dfbd', paddingTop: 6, marginTop: 6 },
+  culturalLabel: { color: '#80520b', fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  culturalValue: { color: '#374151', fontSize: 12, lineHeight: 17, marginTop: 2 },
+  culturalGuardrail: { color: '#6f7782', fontSize: 10, fontStyle: 'italic', lineHeight: 14, marginTop: 8 },
 
   frameGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 },
   frameCard: { width: '33.33%', paddingHorizontal: 4, marginBottom: 12 },

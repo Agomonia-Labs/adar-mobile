@@ -10,6 +10,7 @@
     "geetabitan": "npm run start --workspace apps/geetabitan",
     "frontdesk": "npm run start --workspace apps/frontdesk",
     "docintel": "npm run start --workspace apps/docintel",
+    "eats": "npm run start --workspace apps/eats",
     "android": "expo run:android",
     "ios": "expo run:ios"
   },

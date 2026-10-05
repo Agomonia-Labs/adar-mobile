@@ -17,7 +17,8 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleDisplayName": "DocIntel",
-        "NSMicrophoneUsageDescription": "ADAR DocIntel uses your microphone to transcribe voice questions."
+        "NSMicrophoneUsageDescription": "ADAR DocIntel uses your microphone to transcribe voice questions.",
+        "NSPhotoLibraryUsageDescription": "ADAR DocIntel accesses your photo library so you can choose videos to upload."
       }
     },
     "android": {
@@ -31,6 +32,14 @@
       ],
       "softwareKeyboardLayoutMode": "resize"
     },
-    "icon": "./assets/icon.png"
+    "icon": "./assets/icon.png",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ADAR DocIntel accesses your photo library so you can choose videos to upload."
+        }
+      ]
+    ]
   }
 }
