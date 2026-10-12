@@ -1,0 +1,21 @@
+diff --git a/node_modules/expo-device/ios/UIDevice.swift b/node_modules/expo-device/ios/UIDevice.swift
+index 7d58ee8..e3118ac 100644
+--- a/node_modules/expo-device/ios/UIDevice.swift
++++ b/node_modules/expo-device/ios/UIDevice.swift
+@@ -185,7 +185,15 @@ public extension UIDevice {
+ 
+   // Credit: https://github.com/developerinsider/isJailBroken/blob/master/IsJailBroken/Extension/UIDevice%2BJailBroken.swift
+   var isSimulator: Bool {
+-    return TARGET_OS_SIMULATOR != 0
++    // TARGET_OS_SIMULATOR is a C preprocessor macro (TargetConditionals.h)
++    // that Swift can't see directly here ("cannot find in scope" on
++    // Xcode 16's stricter Clang importer) -- #if targetEnvironment(...)
++    // is the Swift-native equivalent check.
++#if targetEnvironment(simulator)
++    return true
++#else
++    return false
++#endif
+   }
+ 
+   var isJailbroken: Bool {

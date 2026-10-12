@@ -4,7 +4,9 @@ import {
   Alert,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   SectionList,
   StyleSheet,
@@ -18,12 +20,14 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@adar/shared-auth';
+import { useWorkspace } from './WorkspaceContext';
 import {
   EatsAgentRun,
   EatsMenuPacket,
   EatsMenuPacketItem,
   EatsOwnerMenuItem,
   EatsOwnerRestaurant,
+  EatsPendingRestaurantRun,
   EatsRestaurantTranscript,
   MENU_CATEGORY_ORDER,
   approveRestaurantScribe,
@@ -36,6 +40,7 @@ import {
   getRestaurantTranscriptChunkContent,
   getRestaurantTranscriptChunks,
   listMyRestaurants,
+  listPendingRestaurantRuns,
   menuCategoryBucket,
   setMarketplaceVisibility,
   submitRestaurantScribe,
@@ -44,6 +49,7 @@ import {
   uploadMenuItemPhoto,
 } from './eatsApi';
 import { MenuItemDetailModal } from './MenuItemDetailModal';
+import { DineInManageScreen } from './DineInManageScreen';
 
 const BRAND = '#1b2430';
 
@@ -52,7 +58,7 @@ function formatPrice(price: number | null, currency: string) {
   return `${currency === 'USD' ? '$' : currency + ' '}${price.toFixed(2)}`;
 }
 
-type Screen = 'list' | 'recorder' | 'review' | 'photos' | 'transcript';
+type Screen = 'list' | 'recorder' | 'review' | 'photos' | 'transcript' | 'dineIn';
 
 /** Restaurant owner side of ADAR Eats: list your restaurants, toggle
  *  marketplace visibility, record a spoken menu walkthrough that the
@@ -65,6 +71,7 @@ type Screen = 'list' | 'recorder' | 'review' | 'photos' | 'transcript';
 export function OwnerDashboardScreen() {
   const { session, client } = useAuth();
   const accessToken = session?.accessToken || '';
+  const { workspaceId, workspaceName, error: workspaceError } = useWorkspace();
 
   const [screen, setScreen] = useState<Screen>('list');
   const [restaurants, setRestaurants] = useState<EatsOwnerRestaurant[]>([]);
@@ -72,23 +79,43 @@ export function OwnerDashboardScreen() {
   const [error, setError] = useState<string | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [activeRestaurantId, setActiveRestaurantId] = useState<string | null>(null);
+  const [pendingRuns, setPendingRuns] = useState<EatsPendingRestaurantRun[]>([]);
 
   const loadRestaurants = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const rows = await listMyRestaurants(client, accessToken);
+      const rows = await listMyRestaurants(client, accessToken, workspaceId);
       setRestaurants(rows);
     } catch (err) {
       setError('Could not load your restaurants. Pull down to try again.');
     } finally {
       setLoading(false);
     }
-  }, [client, accessToken]);
+  }, [client, accessToken, workspaceId]);
+
+  // A scribe recording that finished (or is still transcribing) in a
+  // session the owner has since left -- app backgrounded, navigated away,
+  // or closed before the review screen appeared -- has no run_id left on
+  // the client to resume it. Without this, that recording and its
+  // transcript exist on the server but are permanently unreachable from
+  // here. Best-effort: a failure here shouldn't block the restaurant list
+  // itself from loading, so it fails silently rather than via setError.
+  const loadPendingRuns = useCallback(async () => {
+    try {
+      const runs = await listPendingRestaurantRuns(client, accessToken, workspaceId);
+      setPendingRuns(runs);
+    } catch {
+      // leave whatever was last successfully loaded in place
+    }
+  }, [client, accessToken, workspaceId]);
 
   useEffect(() => {
-    if (screen === 'list') loadRestaurants();
-  }, [screen, loadRestaurants]);
+    if (screen === 'list') {
+      loadRestaurants();
+      loadPendingRuns();
+    }
+  }, [screen, loadRestaurants, loadPendingRuns]);
 
   const toggleMarketplace = useCallback(
     async (restaurant: EatsOwnerRestaurant, value: boolean) => {
@@ -110,6 +137,7 @@ export function OwnerDashboardScreen() {
   if (screen === 'recorder') {
     return (
       <ScribeRecorderScreen
+        workspaceId={workspaceId}
         onCancel={() => setScreen('list')}
         onSubmitted={(runId) => {
           setActiveRunId(runId);
@@ -150,6 +178,20 @@ export function OwnerDashboardScreen() {
     );
   }
 
+  if (screen === 'dineIn' && activeRestaurantId) {
+    const activeRestaurant = restaurants.find((r) => r.id === activeRestaurantId);
+    if (activeRestaurant) {
+      return (
+        <DineInManageScreen
+          client={client}
+          accessToken={accessToken}
+          restaurant={activeRestaurant}
+          onDone={() => setScreen('list')}
+        />
+      );
+    }
+  }
+
   return (
     <SafeAreaView style={styles.flex} edges={['bottom']}>
       <View style={styles.listHeader}>
@@ -158,6 +200,14 @@ export function OwnerDashboardScreen() {
           <Text style={styles.recordButtonText}>🎙 Record new menu</Text>
         </TouchableOpacity>
       </View>
+
+      {/* adar-eats mobile always operates inside the one shared restaurant
+          workspace -- there is no personal mode and no picker here (see
+          WorkspaceContext.tsx). This only shows up in the rare bootstrap
+          case where that workspace doesn't exist yet. */}
+      {!workspaceId && workspaceError && (
+        <Text style={styles.errorText}>{workspaceError}</Text>
+      )}
 
       {error && <Text style={styles.errorText}>{error}</Text>}
 
@@ -168,8 +218,42 @@ export function OwnerDashboardScreen() {
           style={styles.list}
           data={restaurants}
           keyExtractor={(item) => item.id}
-          onRefresh={loadRestaurants}
+          onRefresh={() => {
+            loadRestaurants();
+            loadPendingRuns();
+          }}
           refreshing={loading}
+          ListHeaderComponent={
+            pendingRuns.length > 0 ? (
+              <View style={styles.pendingRunsSection}>
+                <Text style={styles.pendingRunsTitle}>
+                  {pendingRuns.length === 1 ? 'Menu recording awaiting review' : `${pendingRuns.length} menu recordings awaiting review`}
+                </Text>
+                {pendingRuns.map((run) => (
+                  <TouchableOpacity
+                    key={run.run_id}
+                    style={styles.pendingRunCard}
+                    onPress={() => {
+                      setActiveRunId(run.run_id);
+                      setScreen('review');
+                    }}
+                  >
+                    <Text style={styles.pendingRunName} numberOfLines={1}>
+                      {run.restaurant_name || 'Untitled recording'}
+                    </Text>
+                    <Text style={styles.pendingRunMeta}>
+                      {run.status === 'pending_approval'
+                        ? `Ready to review${run.menu_item_count ? ` · ${run.menu_item_count} items extracted` : ''}`
+                        : 'Still transcribing…'}
+                    </Text>
+                    <Text style={styles.pendingRunAction}>
+                      {run.status === 'pending_approval' ? 'Edit & approve →' : 'Check progress →'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => (
             <View style={styles.card}>
               <Text style={styles.cardTitle}>{item.name}</Text>
@@ -194,7 +278,7 @@ export function OwnerDashboardScreen() {
                     setScreen('photos');
                   }}
                 >
-                  <Text style={styles.manageButtonText}>Manage menu photos</Text>
+                  <Text style={styles.manageButtonText}>Menu</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.manageButton}
@@ -203,7 +287,18 @@ export function OwnerDashboardScreen() {
                     setScreen('transcript');
                   }}
                 >
-                  <Text style={styles.manageButtonText}>View/edit transcript</Text>
+                  <Text style={styles.manageButtonText}>Transcript</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.manageButton}
+                  onPress={() => {
+                    setActiveRestaurantId(item.id);
+                    setScreen('dineIn');
+                  }}
+                >
+                  <Text style={styles.manageButtonText}>
+                    {item.dine_in_enabled ? 'Dine-In' : 'Set up Dine-In'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -224,9 +319,11 @@ export function OwnerDashboardScreen() {
 // ── Step 1: record ──────────────────────────────────────────────────────
 
 function ScribeRecorderScreen({
+  workspaceId,
   onCancel,
   onSubmitted,
 }: {
+  workspaceId: string | null;
   onCancel: () => void;
   onSubmitted: (runId: string) => void;
 }) {
@@ -301,7 +398,7 @@ function ScribeRecorderScreen({
         client,
         accessToken,
         { uri, mimeType: 'audio/mp4', name: 'restaurant-menu-walkthrough.m4a' },
-        { intakeTitle: title.trim() }
+        { intakeTitle: title.trim(), workspaceId }
       );
       onSubmitted(run.run_id);
     } catch (err: any) {
@@ -312,6 +409,15 @@ function ScribeRecorderScreen({
 
   return (
     <SafeAreaView style={styles.flex} edges={['top', 'bottom']}>
+      {/* Without this, the title TextInput below (shown once a recording
+          is captured) gets covered by the keyboard on iOS -- a bare
+          ScrollView doesn't shift its content up on its own, so the user
+          can see the keyboard but not what they're typing. */}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 56 : 0}
+      >
       <View style={styles.header}>
         <TouchableOpacity onPress={onCancel}>
           <Text style={styles.headerBack}>Cancel</Text>
@@ -319,7 +425,7 @@ function ScribeRecorderScreen({
         <Text style={styles.headerTitle}>Record your menu</Text>
         <View style={{ width: 50 }} />
       </View>
-      <ScrollView contentContainerStyle={styles.recorderBody}>
+      <ScrollView contentContainerStyle={styles.recorderBody} keyboardShouldPersistTaps="handled">
         <Text style={styles.recorderHint}>
           Walk through your restaurant and menu out loud -- name, address, and each dish with its price and
           description. We'll transcribe it and pull out a structured menu for you to review.
@@ -369,6 +475,7 @@ function ScribeRecorderScreen({
 
         {recordingState === 'submitting' && <ActivityIndicator style={{ marginTop: 16 }} color={BRAND} />}
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -394,11 +501,19 @@ function ScribeReviewScreen({
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveErrors = 0;
+    // A real failure (expired session, dropped network, server error) must
+    // not look identical to "still transcribing" -- retrying silently
+    // forever on every poll error left the owner staring at "Transcribing
+    // your recording..." with no way to tell a genuine failure from normal
+    // processing time. After several straight failures, surface it instead.
+    const MAX_CONSECUTIVE_ERRORS = 5;
 
     const poll = async () => {
       try {
         const latest = await getAgentRun(client, accessToken, runId);
         if (cancelled) return;
+        consecutiveErrors = 0;
         setRun(latest);
         if (latest.status === 'error') {
           setPollError(latest.error_message || 'Something went wrong while processing your recording.');
@@ -410,8 +525,19 @@ function ScribeReviewScreen({
           return;
         }
         timer = setTimeout(poll, 3000);
-      } catch (err) {
-        if (!cancelled) timer = setTimeout(poll, 4000);
+      } catch (err: any) {
+        if (cancelled) return;
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          const status = err?.response?.status;
+          setPollError(
+            status
+              ? `Could not check on your recording (${status}). Pull to refresh or try again.`
+              : 'Could not check on your recording -- check your connection and try again.'
+          );
+          return;
+        }
+        timer = setTimeout(poll, 4000);
       }
     };
     poll();
@@ -474,6 +600,14 @@ function ScribeReviewScreen({
 
   return (
     <SafeAreaView style={styles.flex} edges={['top', 'bottom']}>
+      {/* Same keyboard-covers-the-input problem as ScribeRecorderScreen,
+          worse here since this screen is almost all TextInputs (restaurant
+          profile + every menu item). */}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 56 : 0}
+      >
       <View style={styles.header}>
         <TouchableOpacity onPress={onCancel}>
           <Text style={styles.headerBack}>Cancel</Text>
@@ -501,7 +635,7 @@ function ScribeReviewScreen({
       )}
 
       {packet && (
-        <ScrollView contentContainerStyle={styles.reviewBody}>
+        <ScrollView contentContainerStyle={styles.reviewBody} keyboardShouldPersistTaps="handled">
           <Text style={styles.sectionTitle}>Restaurant</Text>
           <TextInput
             style={styles.input}
@@ -583,6 +717,7 @@ function ScribeReviewScreen({
           </Text>
         </ScrollView>
       )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -1144,13 +1279,37 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
+  workspaceRow: { flexGrow: 0, marginBottom: 10 },
+  workspaceChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#f1f3f5',
+    maxWidth: 180,
+  },
+  workspaceChipActive: { backgroundColor: BRAND },
+  workspaceChipText: { fontSize: 12.5, fontWeight: '600', color: '#5b6472' },
+  workspaceChipTextActive: { color: '#fff' },
+  pendingRunsSection: { marginBottom: 16 },
+  pendingRunsTitle: { fontSize: 13, fontWeight: '700', color: '#9a6b00', marginBottom: 8 },
+  pendingRunCard: {
+    backgroundColor: '#fff8e6',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(154,107,0,0.25)',
+  },
+  pendingRunName: { fontSize: 15, fontWeight: '700', color: '#14181f' },
+  pendingRunMeta: { fontSize: 12.5, color: '#6b7280', marginTop: 2 },
+  pendingRunAction: { fontSize: 12.5, fontWeight: '700', color: BRAND, marginTop: 6 },
   cardTitle: { fontSize: 16, fontWeight: '700', color: '#14181f', flexShrink: 1 },
   cardSubtitle: { fontSize: 13, color: '#5b6472', marginTop: 2 },
   marketplaceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
   marketplaceLabel: { fontSize: 12, color: '#374151', flexShrink: 1, paddingRight: 8 },
   manageButton: { marginTop: 10, alignSelf: 'flex-start' },
   manageButtonText: { color: BRAND, fontWeight: '600', fontSize: 13 },
-  cardButtonRow: { flexDirection: 'row', gap: 18, marginTop: 2 },
+  cardButtonRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 18, rowGap: 8, marginTop: 2 },
   transcriptBody: { padding: 16, paddingBottom: 40 },
   transcriptHint: { fontSize: 13, color: '#5b6472', marginBottom: 12, lineHeight: 19 },
   transcriptText: { fontSize: 14, color: '#14181f', lineHeight: 21 },

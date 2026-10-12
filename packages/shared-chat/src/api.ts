@@ -100,9 +100,19 @@ export function extractChatErrorMessage(err: unknown, fallback: string): string 
  *  client. Rate limited server-side to 20 sessions/10min per origin+IP. */
 export async function createGuestSession(
   client: AxiosInstance,
-  domain: string
+  domain: string,
+  /** Scopes the minted token to just this one practice_id instead of the
+   *  backend's env-configured Front Desk demo allowlist -- for callers
+   *  (like ADAR Eats' dine-in assistant) whose practice isn't and can't be
+   *  in that fixed list. See adar-core's create_guest_session. Omit for
+   *  Front Desk's own multi-practice "Ask ADAR"/booking flows, which keep
+   *  getting a token scoped to the full demo allowlist as before. */
+  practiceId?: string
 ): Promise<GuestSessionResponse> {
-  const { data } = await client.post<GuestSessionResponse>(`/api/${domain}/guest/session`);
+  const { data } = await client.post<GuestSessionResponse>(
+    `/api/${domain}/guest/session`,
+    practiceId ? { practice_id: practiceId } : undefined
+  );
   return data;
 }
 

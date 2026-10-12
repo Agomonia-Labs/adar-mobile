@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@adar/shared-auth';
+import { useWorkspace } from './WorkspaceContext';
 import {
   EatsFeedback,
   EatsOrder,
@@ -138,6 +139,7 @@ function OrderCard({
 export function OrdersScreen() {
   const { session, client } = useAuth();
   const accessToken = session?.accessToken || '';
+  const { workspaceId } = useWorkspace();
   const [view, setView] = useState<'mine' | 'managing' | 'feedback'>('mine');
   const [feedback, setFeedback] = useState<EatsFeedback[]>([]);
   const [feedbackBusyId, setFeedbackBusyId] = useState<string | null>(null);
@@ -154,8 +156,8 @@ export function OrdersScreen() {
     try {
       const [mine, owner, ownerFeedback] = await Promise.all([
         listMyOrders(client, accessToken),
-        listOwnerOrders(client, accessToken).catch(() => []),
-        listOwnerFeedback(client, accessToken).catch(() => []),
+        listOwnerOrders(client, accessToken, { workspaceId }).catch(() => []),
+        listOwnerFeedback(client, accessToken, undefined, workspaceId).catch(() => []),
       ]);
       setMyOrders(mine);
       setOwnerOrders(owner);
@@ -165,7 +167,7 @@ export function OrdersScreen() {
     } finally {
       setLoading(false);
     }
-  }, [client, accessToken]);
+  }, [client, accessToken, workspaceId]);
 
   useEffect(() => {
     refresh();
@@ -187,7 +189,7 @@ export function OrdersScreen() {
   const acknowledgeFeedback = async (item: EatsFeedback) => {
     setFeedbackBusyId(item.id);
     try {
-      await updateFeedbackStatus(client, accessToken, item.id, 'acknowledged');
+      await updateFeedbackStatus(client, accessToken, item.id, 'acknowledged', undefined, workspaceId);
       await refresh();
     } catch {
       setError('Could not update feedback.');

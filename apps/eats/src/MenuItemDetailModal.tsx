@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -144,6 +146,14 @@ export function MenuItemDetailModal({
 
   return (
     <Modal visible={visible && !!item} animationType="slide" transparent onRequestClose={editing ? cancelEdit : onClose}>
+      {/* Edit mode's form fields (item name, price, description, ...) are
+          plain TextInputs in a bottom-sheet Modal -- without this, the
+          keyboard covers the sheet instead of pushing it up, same bug as
+          the scribe recorder/review screens. backdrop is
+          justifyContent:'flex-end', so "padding" behavior here adds
+          bottom padding equal to the keyboard height and the sheet rides
+          up above it. */}
+      <KeyboardAvoidingView style={styles.flexFill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <View style={styles.handleRow}>
@@ -228,7 +238,7 @@ export function MenuItemDetailModal({
           )}
 
           {item && editing && form && (
-            <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+            <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <Text style={styles.formLabel}>Item name</Text>
               <TextInput
                 style={styles.formInput}
@@ -345,11 +355,13 @@ export function MenuItemDetailModal({
           </View>
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  flexFill: { flex: 1 },
   backdrop: { flex: 1, backgroundColor: 'rgba(10,13,18,0.5)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,

@@ -67,7 +67,23 @@ export function useGuestChat(
    *  sent as X-Customer-Token so the backend can attach the customer's
    *  real identity to bookings made in this conversation. Callers with no
    *  signed-in-account concept simply omit this. */
-  customerAccessTokenRef?: MutableRefObject<string | undefined>
+  customerAccessTokenRef?: MutableRefObject<string | undefined>,
+  /** When true, the guest token itself (not just each chat turn's
+   *  grounding) is minted scoped to practiceIdRef.current via
+   *  createGuestSession's practiceId param, instead of the backend's
+   *  env-configured Front Desk demo allowlist. For a caller whose practice
+   *  isn't and can't be in that allowlist -- e.g. ADAR Eats' dine-in
+   *  assistant, scoped to one restaurant -- omitting this would get a 403
+   *  on every call once get_scheduling_guest checks the token's
+   *  practice_ids against that allowlist. Front Desk's own multi-practice
+   *  "Ask ADAR" leaves this unset/false, keeping its existing
+   *  demo-allowlist-scoped token (practiceIdRef there is read fresh for
+   *  each turn's grounding, not for token minting). Requires practiceIdRef
+   *  to already be set as of the first send -- a guest session minted
+   *  before it resolves gets the demo-scoped token instead; switching
+   *  practiceIdRef afterwards does nothing until reset() mints a fresh
+   *  one. */
+  scopeGuestTokenToPractice?: boolean
 ): UseGuestChatResult {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -84,7 +100,11 @@ export function useGuestChat(
       Date.now() < expiresAtMsRef.current &&
       sentCountRef.current < GUEST_SESSION_MAX_MESSAGES;
     if (!stillValid) {
-      const guest = await createGuestSession(client, domain);
+      const guest = await createGuestSession(
+        client,
+        domain,
+        scopeGuestTokenToPractice ? practiceIdRef?.current : undefined
+      );
       tokenRef.current = guest.access_token;
       expiresAtMsRef.current = new Date(guest.expires_at).getTime();
       sentCountRef.current = 0;
@@ -94,7 +114,7 @@ export function useGuestChat(
       sessionIdRef.current = undefined;
     }
     return tokenRef.current as string;
-  }, [client, domain]);
+  }, [client, domain, scopeGuestTokenToPractice, practiceIdRef]);
 
   const send = useCallback(
     async (text: string) => {

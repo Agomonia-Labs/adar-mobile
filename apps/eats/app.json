@@ -19,7 +19,8 @@
         "CFBundleDisplayName": "ADAR Eats",
         "NSMicrophoneUsageDescription": "ADAR Eats uses your microphone to record a spoken restaurant menu for review.",
         "NSCameraUsageDescription": "ADAR Eats uses your camera to take photos of menu items.",
-        "NSPhotoLibraryUsageDescription": "ADAR Eats uses your photo library to choose photos of menu items."
+        "NSPhotoLibraryUsageDescription": "ADAR Eats uses your photo library to choose photos of menu items.",
+        "NSLocationWhenInUseUsageDescription": "ADAR Eats uses your location to show restaurants and menus near you and to filter dine-in reservations by distance."
       }
     },
     "android": {
@@ -30,9 +31,32 @@
       },
       "permissions": [
         "RECORD_AUDIO",
-        "CAMERA"
+        "CAMERA",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
       ]
     },
-    "icon": "./assets/icon.png"
+    "icon": "./assets/icon.png",
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#1b2430"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "ADAR Eats uses your location to show restaurants and menus near you and to filter dine-in reservations by distance."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "eb12a68e-0bdf-4c39-ab96-195167665540"
+      }
+    },
+    "owner": "brajadas"
   }
 }

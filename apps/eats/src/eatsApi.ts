@@ -25,20 +25,73 @@ export interface EatsRestaurant {
   verified_rating_count: number;
   can_manage: boolean;
   marketplace_visible: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
+  city?: string;
+  state?: string;
+  // Miles from the lat/lng passed to the list call -- null/undefined
+  // when no location was given, or this restaurant has no coordinates
+  // of its own yet (address not geocoded -- see backend's geocoding.py).
+  distance_miles?: number | null;
+  dine_in_enabled?: boolean;
+  scheduling_practice_id?: string;
+}
+
+/** Location scoping shared by listMarketplaceRestaurants/searchMarketplaceMenu/
+ *  compareMarketplaceMenu/searchMenuAdvanced -- mirrors the backend's own
+ *  params (routes/restaurant.py). `lat`/`lng` scope by distance (radiusMiles,
+ *  default 50); `city` additionally includes a same-city restaurant even if
+ *  it's outside that radius. Passing neither applies no location filter at
+ *  all (old behavior, e.g. for an owner's own-workspace calls). */
+export interface EatsGeoScope {
+  name?: string;
+  city?: string;
+  state?: string;
+  lat?: number | null;
+  lng?: number | null;
+  radiusMiles?: number;
+}
+
+function geoScopeParams(opts?: EatsGeoScope): Record<string, string | number> {
+  if (!opts) return {};
+  const params: Record<string, string | number> = {};
+  if (opts.name) params.name = opts.name;
+  if (opts.city) params.city = opts.city;
+  if (opts.state) params.state = opts.state;
+  if (opts.lat != null && opts.lng != null) {
+    params.lat = opts.lat;
+    params.lng = opts.lng;
+    params.radius_miles = opts.radiusMiles ?? 50;
+  }
+  return params;
 }
 
 /** GET /api/restaurant/restaurants?marketplace=true -- every restaurant
  *  that has opted into the public marketplace, across all workspaces.
  *  (Owners opt in via POST /api/restaurant/restaurants/{id}/marketplace.) */
+export interface EatsRestaurantList {
+  restaurants: EatsRestaurant[];
+  // true when a city/state/lat+lng location was given but matched zero
+  // restaurants, so the backend fell back to the full marketplace list
+  // instead of returning nothing (see routes/restaurant.py's
+  // list_restaurants) -- almost always because the matching restaurants
+  // haven't been geocoded yet, not because there's truly nothing there.
+  locationRelaxed: boolean;
+}
+
 export async function listMarketplaceRestaurants(
   client: AxiosInstance,
-  accessToken: string
-): Promise<EatsRestaurant[]> {
+  accessToken: string,
+  geo?: EatsGeoScope
+): Promise<EatsRestaurantList> {
   const { data } = await client.get('/api/restaurant/restaurants', {
     headers: authHeaders(accessToken),
-    params: { marketplace: true },
+    params: { marketplace: true, ...geoScopeParams(geo) },
   });
-  return data.restaurants as EatsRestaurant[];
+  return {
+    restaurants: data.restaurants as EatsRestaurant[],
+    locationRelaxed: !!data.location_relaxed,
+  };
 }
 
 export interface EatsMenuItem {
@@ -64,6 +117,9 @@ export interface EatsMenuItem {
   // declared here (not just on EatsOwnerMenuItem) so a customer-facing
   // detail popup can show the photo too.
   image_url: string | null;
+  restaurant_city?: string;
+  restaurant_state?: string;
+  distance_miles?: number | null;
 }
 
 /** The standard menu sections every restaurant's items get grouped into
@@ -138,11 +194,12 @@ export function menuCategoryBucket(category: string | null | undefined): MenuCat
 export async function searchMarketplaceMenu(
   client: AxiosInstance,
   accessToken: string,
-  query: string
+  query: string,
+  geo?: EatsGeoScope
 ): Promise<EatsMenuItem[]> {
   const { data } = await client.get('/api/restaurant/menu/search', {
     headers: authHeaders(accessToken),
-    params: { query, marketplace: true },
+    params: { query, marketplace: true, ...geoScopeParams(geo) },
   });
   return data.items as EatsMenuItem[];
 }
@@ -160,11 +217,12 @@ export interface EatsMenuCompare {
 export async function compareMarketplaceMenu(
   client: AxiosInstance,
   accessToken: string,
-  query: string
+  query: string,
+  geo?: EatsGeoScope
 ): Promise<EatsMenuCompare> {
   const { data } = await client.get('/api/restaurant/menu/compare', {
     headers: authHeaders(accessToken),
-    params: { query, marketplace: true },
+    params: { query, marketplace: true, ...geoScopeParams(geo) },
   });
   return data as EatsMenuCompare;
 }
@@ -178,6 +236,29 @@ export async function compareMarketplaceMenu(
 // /restaurants/{id}/menu-items/{item_id}/photo and the
 // restaurant_menu_items.image_gcs_path column were added alongside this
 // mobile screen.
+
+export interface EatsRestaurantWorkspace {
+  workspace_id: string;
+  workspace_name: string;
+}
+
+/** GET /api/restaurant/workspace -- resolves (and, the first time, joins
+ *  the caller to) the one shared restaurant workspace every adar-eats
+ *  mobile owner/user acts in. Mobile never operates in a personal
+ *  (workspace_id=null) context on this screen -- see WorkspaceContext.tsx,
+ *  which calls this once at startup and uses the result for every
+ *  owner-side call from then on. Throws (404-shaped by the client lib as
+ *  a 409) only in the bootstrap case where no restaurant workspace exists
+ *  anywhere yet. */
+export async function getRestaurantWorkspace(
+  client: AxiosInstance,
+  accessToken: string
+): Promise<EatsRestaurantWorkspace> {
+  const { data } = await client.get('/api/restaurant/workspace', {
+    headers: authHeaders(accessToken),
+  });
+  return data as EatsRestaurantWorkspace;
+}
 
 export interface EatsOwnerRestaurant extends EatsRestaurant {
   description: string;
@@ -228,18 +309,44 @@ export interface EatsAgentRun {
 }
 
 /** Pulls the extracted/edited menu packet out of an agent run's `result`,
- *  mirroring _restaurant_packet_from_result in routes/restaurant.py. */
-export function extractMenuPacket(run: EatsAgentRun): EatsMenuPacket | null {
-  const result = run.result;
+ *  mirroring _restaurant_packet_from_result in routes/restaurant.py exactly --
+ *  including its one-level nested-result fallback (some workflow result
+ *  shapes wrap the real payload under an extra "result" key), which this
+ *  function was previously missing: a run whose packet only resolved via
+ *  that fallback on the backend (e.g. the restore-on-list-restaurants path
+ *  uses the same helper) would come back null here and the owner's review
+ *  screen would stay stuck on "Transcribing..." forever with no error. */
+function restaurantPacketFromResult(result: unknown): EatsMenuPacket | null {
   if (!result || typeof result !== 'object') return null;
+  const r = result as Record<string, any>;
   for (const key of ['approved_packet', 'review_packet', 'restaurant_packet', 'packet']) {
-    const candidate = result[key];
+    const candidate = r[key];
     if (candidate && typeof candidate === 'object' && candidate.restaurant_profile) {
-      return candidate as EatsMenuPacket;
+      return normalizeMenuPacket(candidate);
     }
   }
-  if ((result as any).restaurant_profile) return result as unknown as EatsMenuPacket;
+  if (r.restaurant_profile) return normalizeMenuPacket(r);
+  if (r.result && typeof r.result === 'object') return restaurantPacketFromResult(r.result);
   return null;
+}
+
+/** Guards against a packet whose menu_items came back missing or not an
+ *  array (an older/partial run shape, or a quality-review-only partial
+ *  result) -- without this, `packet.menu_items.length`/`.map` in
+ *  ScribeReviewScreen would throw and blank the whole review screen,
+ *  which looks to the owner exactly like "the menu isn't showing up"
+ *  with no error at all. Mirrors adar-web's RestaurantPanel.jsx
+ *  normalizePacket(). */
+function normalizeMenuPacket(packet: Record<string, any>): EatsMenuPacket {
+  return {
+    ...packet,
+    restaurant_profile: packet.restaurant_profile || {},
+    menu_items: Array.isArray(packet.menu_items) ? packet.menu_items : [],
+  } as EatsMenuPacket;
+}
+
+export function extractMenuPacket(run: EatsAgentRun): EatsMenuPacket | null {
+  return restaurantPacketFromResult(run.result);
 }
 
 export interface EatsMenuPacketItem {
@@ -275,6 +382,34 @@ export interface EatsMenuPacket {
  *  workflow in the background (see RESTAURANT_WORKFLOW_ID in
  *  routes/restaurant.py). Returns a vertical_agent_runs row (status
  *  'running' at first) to poll via getAgentRun. */
+export interface EatsPendingRestaurantRun {
+  run_id: string;
+  status: string;
+  created_at: string | null;
+  restaurant_name: string;
+  menu_item_count: number;
+}
+
+/** GET /api/restaurant/agent-runs -- scribe recordings this owner (or a
+ *  workspace co-editor) made that are still awaiting review/approval.
+ *  Without this, a run outliving the single in-memory screen session that
+ *  created it (app closed/backgrounded mid-transcription, or the owner
+ *  just navigated away before the review screen appeared) becomes
+ *  permanently unreachable -- the recording and transcript exist on the
+ *  server, but the client has no run_id left to resume reviewing it. The
+ *  owner's restaurant list screen polls this to always offer a way back. */
+export async function listPendingRestaurantRuns(
+  client: AxiosInstance,
+  accessToken: string,
+  workspaceId?: string | null
+): Promise<EatsPendingRestaurantRun[]> {
+  const { data } = await client.get('/api/restaurant/agent-runs', {
+    headers: authHeaders(accessToken),
+    params: workspaceId ? { workspace_id: workspaceId } : undefined,
+  });
+  return (data?.runs as EatsPendingRestaurantRun[]) || [];
+}
+
 export async function submitRestaurantScribe(
   client: AxiosInstance,
   accessToken: string,
@@ -453,10 +588,12 @@ export interface EatsDocument {
  *  (and its saved transcript) this owner can see, newest first. */
 export async function listRestaurantDocuments(
   client: AxiosInstance,
-  accessToken: string
+  accessToken: string,
+  workspaceId?: string | null
 ): Promise<EatsDocument[]> {
   const { data } = await client.get('/api/restaurant/documents', {
     headers: authHeaders(accessToken),
+    params: workspaceId ? { workspace_id: workspaceId } : undefined,
   });
   return data.documents as EatsDocument[];
 }
@@ -1068,11 +1205,12 @@ export async function listMyFeedback(client: AxiosInstance, accessToken: string)
 export async function listOwnerFeedback(
   client: AxiosInstance,
   accessToken: string,
-  status?: string
+  status?: string,
+  workspaceId?: string | null
 ): Promise<EatsFeedback[]> {
   const { data } = await client.get('/api/restaurant/owner/feedback', {
     headers: authHeaders(accessToken),
-    params: status ? { status } : undefined,
+    params: { status: status || undefined, workspace_id: workspaceId ?? undefined },
   });
   return data.feedback as EatsFeedback[];
 }
@@ -1084,11 +1222,12 @@ export async function updateFeedbackStatus(
   accessToken: string,
   feedbackId: string,
   status: 'acknowledged' | 'responded' | 'resolved' | 'dismissed',
-  ownerResponse?: string
+  ownerResponse?: string,
+  workspaceId?: string | null
 ): Promise<EatsFeedback> {
   const { data } = await client.post(
     `/api/restaurant/owner/feedback/${feedbackId}/status`,
-    { status, owner_response: ownerResponse || '' },
+    { status, owner_response: ownerResponse || '', workspace_id: workspaceId ?? null },
     { headers: authHeaders(accessToken) }
   );
   return data.feedback as EatsFeedback;
@@ -1156,6 +1295,7 @@ export async function searchMenuAdvanced(
     category?: MenuCategoryBucket | '';
     marketplace?: boolean;
     workspaceId?: string | null;
+    geo?: EatsGeoScope;
   }
 ): Promise<EatsMenuItem[]> {
   const termA = params.termA.trim();
@@ -1168,6 +1308,7 @@ export async function searchMenuAdvanced(
         query: q,
         marketplace: params.marketplace ?? true,
         workspace_id: params.workspaceId ?? undefined,
+        ...geoScopeParams(params.geo),
       },
     });
     return data.items as EatsMenuItem[];
@@ -1368,4 +1509,326 @@ export async function getAccountDeletionImpact(client: AxiosInstance, accessToke
 
 export async function deleteAccount(client: AxiosInstance, accessToken: string, password: string): Promise<void> {
   await client.delete('/api/auth/account', { data: { password }, headers: authHeaders(accessToken) });
+}
+
+// ── Push notifications ──────────────────────────────────────────────────
+// Registers this device's Expo push token against the signed-in user so
+// the backend's order-status notifications (routes/restaurant.py's
+// _notify_restaurant_owner/_notify_restaurant_customer) can reach this
+// phone even when the app is closed or backgrounded -- unlike the
+// existing in-app NotificationsBell, which only shows updates while the
+// app is open. See usePushRegistration.ts for the hook that calls these.
+export async function registerPushToken(
+  client: AxiosInstance,
+  accessToken: string,
+  pushToken: string,
+  platform: string
+): Promise<void> {
+  await client.post(
+    '/api/restaurant/push-token',
+    { push_token: pushToken, platform },
+    { headers: authHeaders(accessToken) }
+  );
+}
+
+export async function unregisterPushToken(client: AxiosInstance, accessToken: string, pushToken: string): Promise<void> {
+  await client.delete('/api/restaurant/push-token', {
+    params: { push_token: pushToken },
+    headers: authHeaders(accessToken),
+  });
+}
+
+// ── Dine-in table reservations ──────────────────────────────────────────────
+// Booking engine lives in adar-core's scheduling domain (the same one
+// powering ADAR Front Desk) -- see the backend's services/scheduling_client.py.
+// A restaurant maps to one scheduling "practice"; each physical table maps
+// to one "provider" there. Same-seat tables are grouped into a "tier" only
+// as a display label (seats + how many tables of that size are free).
+
+export interface EatsDineInTable {
+  id: string;
+  name: string;
+  seats: number;
+  active: boolean;
+}
+
+export interface EatsDineInWorkingHour {
+  weekday: number; // 0=Monday .. 6=Sunday
+  start: string;   // "HH:MM"
+  end: string;      // "HH:MM"
+}
+
+export interface EatsDineInTier {
+  seats: number;
+  table_count?: number;
+  tables_available?: number;
+  slots?: string[];
+}
+
+export interface EatsDineInConfig {
+  dine_in_enabled: boolean;
+  max_advance_days?: number;
+  duration_minutes?: number;
+  timezone?: string; // IANA zone, e.g. "America/New_York" -- the restaurant's
+  // own setting (Manage Dine-In > Time zone), not the customer's device.
+  tiers?: EatsDineInTier[];
+}
+
+export interface EatsDineInAvailability {
+  date: string;
+  party_size: number;
+  timezone: string; // same IANA zone as EatsDineInConfig.timezone -- slot
+  // times below should be displayed in THIS zone, not the device's local one.
+  tiers: EatsDineInTier[];
+}
+
+export interface EatsDineInReservation {
+  reservation: { id: string; start_time: string; end_time: string; status: string; [key: string]: unknown };
+  table: { id: string; name: string };
+}
+
+/** GET /api/restaurant/restaurants/{id}/dine-in/config -- public-ish read
+ *  for the customer booking screen: whether dine-in is on, and the
+ *  available table-size tiers. */
+export async function getDineInConfig(client: AxiosInstance, accessToken: string, restaurantId: string): Promise<EatsDineInConfig> {
+  const { data } = await client.get(`/api/restaurant/restaurants/${restaurantId}/dine-in/config`, {
+    headers: authHeaders(accessToken),
+  });
+  return data as EatsDineInConfig;
+}
+
+/** GET /api/restaurant/restaurants/{id}/dine-in/availability -- advisory
+ *  per-day availability preview, grouped by table-size tier. The
+ *  authoritative check happens server-side when confirming. */
+export async function checkDineInAvailability(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  date: string,
+  partySize: number
+): Promise<EatsDineInAvailability> {
+  const { data } = await client.get(`/api/restaurant/restaurants/${restaurantId}/dine-in/availability`, {
+    headers: authHeaders(accessToken),
+    params: { date, party_size: partySize },
+  });
+  return data as EatsDineInAvailability;
+}
+
+/** POST /api/restaurant/restaurants/{id}/dine-in/reservations -- books the
+ *  table immediately (no separate hold step; adar-core's REST surface has
+ *  no holdable primitive, only the chat/voice tools do -- see backend
+ *  docstring on create_booking in services/scheduling_client.py). */
+export async function confirmDineIn(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  body: {
+    tableId?: string;
+    seats?: number; // the table-tier the customer picked (e.g. "Tables for 4") --
+    // lets the backend book from that specific tier instead of auto-picking
+    // whichever table happens to be smallest/free.
+    partySize: number;
+    startTime: string; // ISO 8601
+    callerName: string;
+    callerPhone?: string;
+    callerEmail?: string;
+    reason?: string;
+  }
+): Promise<EatsDineInReservation> {
+  const { data } = await client.post(
+    `/api/restaurant/restaurants/${restaurantId}/dine-in/reservations`,
+    {
+      table_id: body.tableId,
+      seats: body.seats,
+      party_size: body.partySize,
+      start_time: body.startTime,
+      caller_name: body.callerName,
+      caller_phone: body.callerPhone || '',
+      caller_email: body.callerEmail || '',
+      reason: body.reason || '',
+    },
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsDineInReservation;
+}
+
+export interface EatsMyDineInReservation {
+  booking_id: string;
+  status: string; // 'confirmed' | 'cancelled'
+  table_name: string;
+  party_size: number;
+  start_time: string; // ISO 8601, UTC
+  start_time_formatted: string; // pre-formatted in the restaurant's own timezone
+  can_cancel: boolean;
+  can_reschedule: boolean;
+}
+
+/** GET /api/restaurant/restaurants/{id}/dine-in/my-reservations -- the
+ *  signed-in customer's own reservations at this restaurant (past and
+ *  upcoming, confirmed and cancelled), for a "My Reservations" screen. */
+export async function listMyDineInReservations(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string
+): Promise<{ restaurant_id: string; restaurant_name: string; reservations: EatsMyDineInReservation[] }> {
+  const { data } = await client.get(`/api/restaurant/restaurants/${restaurantId}/dine-in/my-reservations`, {
+    headers: authHeaders(accessToken),
+  });
+  return data;
+}
+
+/** POST /api/restaurant/restaurants/{id}/dine-in/bookings/{bookingId}/cancel
+ *  -- usable by the customer who made the reservation OR the restaurant
+ *  owner/manager (shared endpoint; the backend checks which one is calling
+ *  and notifies the other side accordingly). */
+export async function cancelDineInReservation(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  bookingId: string,
+  reason?: string
+): Promise<{ booking_id: string; status: string }> {
+  const { data } = await client.post(
+    `/api/restaurant/restaurants/${restaurantId}/dine-in/bookings/${bookingId}/cancel`,
+    { reason: reason || '' },
+    { headers: authHeaders(accessToken) }
+  );
+  return data;
+}
+
+/** POST /api/restaurant/restaurants/{id}/dine-in/bookings/{bookingId}/reschedule
+ *  -- moves the reservation to a new time (cancel-old + create-new under
+ *  the hood, since adar-core has no atomic reschedule primitive; the old
+ *  slot is only released once the new one is confirmed, so a reschedule
+ *  that finds no availability never loses the existing reservation).
+ *  Usable by the customer or the restaurant owner/manager, same as cancel. */
+export async function rescheduleDineInReservation(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  bookingId: string,
+  body: { startTime: string; tableId?: string; seats?: number; reason?: string }
+): Promise<EatsDineInReservation & { old_booking_id: string }> {
+  const { data } = await client.post(
+    `/api/restaurant/restaurants/${restaurantId}/dine-in/bookings/${bookingId}/reschedule`,
+    {
+      start_time: body.startTime,
+      table_id: body.tableId,
+      seats: body.seats,
+      reason: body.reason || '',
+    },
+    { headers: authHeaders(accessToken) }
+  );
+  return data;
+}
+
+// ── Owner: dine-in setup ─────────────────────────────────────────────────────
+
+/** POST /api/restaurant/restaurants/{id}/dine-in/enable -- one-time setup,
+ *  safe to call again (re-patches rather than duplicating). */
+export async function enableDineIn(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  opts: { notificationEmail?: string; timezone?: string; leadTimeMinutes?: number } = {}
+): Promise<{ id: string; dine_in_enabled: boolean; scheduling_practice_id: string }> {
+  const { data } = await client.post(
+    `/api/restaurant/restaurants/${restaurantId}/dine-in/enable`,
+    {
+      notification_email: opts.notificationEmail || '',
+      timezone: opts.timezone || 'UTC',
+      lead_time_minutes: opts.leadTimeMinutes ?? 120,
+    },
+    { headers: authHeaders(accessToken) }
+  );
+  return data;
+}
+
+/** GET /api/restaurant/restaurants/{id}/dine-in/tables -- owner's table list. */
+export async function listOwnerTables(client: AxiosInstance, accessToken: string, restaurantId: string): Promise<EatsDineInTable[]> {
+  const { data } = await client.get(`/api/restaurant/restaurants/${restaurantId}/dine-in/tables`, {
+    headers: authHeaders(accessToken),
+  });
+  return data.tables as EatsDineInTable[];
+}
+
+/** PUT /api/restaurant/restaurants/{id}/dine-in/tables -- full-replace: a
+ *  table with an id is updated, one without is created, and any existing
+ *  table missing from this list is deactivated (not deleted, so its
+ *  booking history stays intact). */
+export async function updateOwnerTables(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  tables: { id?: string; name: string; seats: number }[]
+): Promise<EatsDineInTable[]> {
+  const { data } = await client.put(
+    `/api/restaurant/restaurants/${restaurantId}/dine-in/tables`,
+    { tables },
+    { headers: authHeaders(accessToken) }
+  );
+  return data.tables as EatsDineInTable[];
+}
+
+/** GET /api/restaurant/restaurants/{id}/dine-in/hours -- owner's current
+ *  working hours + lead time (applied uniformly to every table). */
+export async function getOwnerDineInHours(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string
+): Promise<{ working_hours: EatsDineInWorkingHour[]; lead_time_minutes: number; timezone?: string }> {
+  const { data } = await client.get(`/api/restaurant/restaurants/${restaurantId}/dine-in/hours`, {
+    headers: authHeaders(accessToken),
+  });
+  return data;
+}
+
+/** PUT /api/restaurant/restaurants/{id}/dine-in/hours */
+export async function updateOwnerDineInHours(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  workingHours: EatsDineInWorkingHour[],
+  leadTimeMinutes?: number,
+  timezone?: string
+): Promise<{ working_hours: EatsDineInWorkingHour[]; timezone?: string }> {
+  const { data } = await client.put(
+    `/api/restaurant/restaurants/${restaurantId}/dine-in/hours`,
+    { working_hours: workingHours, lead_time_minutes: leadTimeMinutes, timezone },
+    { headers: authHeaders(accessToken) }
+  );
+  return data;
+}
+
+export interface EatsDineInBooking {
+  id: string;
+  start_time: string; // ISO 8601, already in the restaurant's own timezone
+  start_label: string; // e.g. "7:30 PM", pre-formatted for display
+  table_name: string;
+  seats: number;
+  caller_name: string;
+  caller_phone: string;
+}
+
+export interface EatsDineInBookingDay {
+  date: string; // YYYY-MM-DD, in the restaurant's own timezone
+  label: string; // e.g. "Thursday, October 8"
+  bookings: EatsDineInBooking[];
+}
+
+/** GET /api/restaurant/restaurants/{id}/dine-in/bookings -- confirmed
+ *  reservations grouped by calendar day (owner's Manage screen). The only
+ *  other way an owner ever saw a booking before this was the one-time
+ *  notification at the moment it was made. */
+export async function getOwnerDineInBookings(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  daysAhead = 14
+): Promise<{ timezone: string; days: EatsDineInBookingDay[] }> {
+  const { data } = await client.get(`/api/restaurant/restaurants/${restaurantId}/dine-in/bookings`, {
+    headers: authHeaders(accessToken),
+    params: { days_ahead: daysAhead },
+  });
+  return data;
 }

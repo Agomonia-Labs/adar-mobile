@@ -24,6 +24,7 @@ import {
   searchMenuAdvanced,
 } from './eatsApi';
 import { OwnerDashboardScreen } from './OwnerDashboardScreen';
+import { DineInScreen } from './DineInScreen';
 import { DocumentsScreen } from './DocumentsScreen';
 import { ChatScreen } from './ChatScreen';
 import { CartScreen } from './CartScreen';
@@ -31,7 +32,10 @@ import { OrdersScreen } from './OrdersScreen';
 import { MenuItemDetailModal } from './MenuItemDetailModal';
 import { NotificationsBell } from './NotificationsBell';
 import { AccountScreen } from './AccountScreen';
+import { usePushRegistration } from './usePushRegistration';
 import { useCart } from './CartContext';
+import { useEatsLocation } from './LocationContext';
+import { LocationPickerBar } from './LocationPickerBar';
 
 const BRAND = '#1b2430';
 // Same convention as the other ADAR mobile apps' own PRIVACY_URL --
@@ -43,7 +47,7 @@ function formatPrice(price: number | null, currency: string) {
   return `${currency === 'USD' ? '$' : currency + ' '}${price.toFixed(2)}`;
 }
 
-type MainTab = 'discover' | 'owner' | 'documents' | 'chat' | 'cart' | 'orders' | 'account';
+type MainTab = 'discover' | 'owner' | 'documents' | 'chat' | 'cart' | 'orders' | 'account' | 'dinein';
 
 /** Discover tab: restaurant discovery + menu search/compare across the
  *  whole marketplace, with AND/OR term combination + category filtering
@@ -52,6 +56,13 @@ type MainTab = 'discover' | 'owner' | 'documents' | 'chat' | 'cart' | 'orders' |
  *  management screens -- see CartScreen.tsx/OrdersScreen.tsx. */
 export function HomeScreen() {
   const { session, client, signOut } = useAuth();
+  // Registers this device for order-status push notifications (new
+  // orders for an owner, status updates for a diner) -- reaches the
+  // phone even when the app is closed/backgrounded, unlike the
+  // NotificationsBell above which only polls while the app is open.
+  // HomeScreen only mounts while signed in and unmounts on sign-out, so
+  // the hook's own cleanup doubles as sign-out token cleanup.
+  usePushRegistration(client, session?.accessToken);
   // Chat (the menu assistant) is the default tab -- the user framed
   // conversation as "the main" way diners compare menus/prices, with
   // Discover's structured search/compare kept as a secondary option.
@@ -74,27 +85,49 @@ export function HomeScreen() {
   const [categoryFilter, setCategoryFilter] = useState<MenuCategoryBucket | ''>('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [restaurants, setRestaurants] = useState<EatsRestaurant[]>([]);
+  const [locationRelaxed, setLocationRelaxed] = useState(false);
   const [menuResults, setMenuResults] = useState<EatsMenuItem[]>([]);
   const [priceRange, setPriceRange] = useState<{ lowest: number | null; highest: number | null } | null>(null);
   const [detailItem, setDetailItem] = useState<EatsMenuItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cart = useCart();
+  const { location, radiusMiles, setRadiusMiles } = useEatsLocation();
 
   const accessToken = session?.accessToken || '';
+
+  // Default scope for discovery/search/compare: within radiusMiles of the
+  // customer's active location (GPS or a typed city/state), or the same
+  // city regardless of distance -- see LocationContext.tsx/LocationPickerBar.
+  // No active location yet => undefined => every marketplace-wide call
+  // below falls back to its old, unscoped behavior.
+  const geoScope = useMemo(
+    () =>
+      location
+        ? {
+            city: location.city || undefined,
+            state: location.state || undefined,
+            lat: location.latitude ?? undefined,
+            lng: location.longitude ?? undefined,
+            radiusMiles,
+          }
+        : undefined,
+    [location, radiusMiles]
+  );
 
   const loadRestaurants = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const rows = await listMarketplaceRestaurants(client, accessToken);
-      setRestaurants(rows);
+      const result = await listMarketplaceRestaurants(client, accessToken, geoScope);
+      setRestaurants(result.restaurants);
+      setLocationRelaxed(result.locationRelaxed);
     } catch (err) {
       setError('Could not load restaurants. Pull down to try again.');
     } finally {
       setLoading(false);
     }
-  }, [client, accessToken]);
+  }, [client, accessToken, geoScope]);
 
   useEffect(() => {
     loadRestaurants();
@@ -112,11 +145,11 @@ export function HomeScreen() {
       setError(null);
       try {
         if (mode === 'compare') {
-          const result = await compareMarketplaceMenu(client, accessToken, q);
+          const result = await compareMarketplaceMenu(client, accessToken, q, geoScope);
           setMenuResults(result.items);
           setPriceRange({ lowest: result.lowest_price, highest: result.highest_price });
         } else {
-          const items = await searchMarketplaceMenu(client, accessToken, q);
+          const items = await searchMarketplaceMenu(client, accessToken, q, geoScope);
           setMenuResults(items);
           setPriceRange(null);
         }
@@ -126,7 +159,7 @@ export function HomeScreen() {
         setLoading(false);
       }
     },
-    [client, accessToken, query]
+    [client, accessToken, query, geoScope]
   );
 
   const runAdvancedSearch = useCallback(async () => {
@@ -144,6 +177,7 @@ export function HomeScreen() {
         termB: a ? b : '',
         mode: combineMode,
         category: categoryFilter,
+        geo: geoScope,
       });
       setMenuResults(items);
       setPriceRange(null);
@@ -152,7 +186,7 @@ export function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  }, [client, accessToken, query, queryB, combineMode, categoryFilter]);
+  }, [client, accessToken, query, queryB, combineMode, categoryFilter, geoScope]);
 
   const addToCartQuick = useCallback(
     (item: EatsMenuItem) => {
@@ -195,14 +229,14 @@ export function HomeScreen() {
 
   const tabRow = (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mainTabScroll} contentContainerStyle={styles.mainTabRow}>
-      {(['chat', 'discover', 'cart', 'orders', 'owner', 'documents', 'account'] as MainTab[]).map((t) => (
+      {(['chat', 'discover', 'dinein', 'cart', 'orders', 'owner', 'documents', 'account'] as MainTab[]).map((t) => (
         <TouchableOpacity
           key={t}
           style={[styles.mainTabButton, mainTab === t && styles.mainTabButtonActive]}
           onPress={() => setMainTab(t)}
         >
           <Text style={[styles.mainTabText, mainTab === t && styles.mainTabTextActive]}>
-            {t === 'chat' ? 'Chat' : t === 'discover' ? 'Discover' : t === 'cart' ? `Cart${cart.itemCount ? ` (${cart.itemCount})` : ''}` : t === 'orders' ? 'Orders' : t === 'owner' ? 'Owner' : t === 'documents' ? 'Documents' : 'Account'}
+            {t === 'chat' ? 'Chat' : t === 'discover' ? 'Discover' : t === 'dinein' ? 'Dine-In' : t === 'cart' ? `Cart${cart.itemCount ? ` (${cart.itemCount})` : ''}` : t === 'orders' ? 'Orders' : t === 'owner' ? 'Owner' : t === 'documents' ? 'Documents' : 'Account'}
           </Text>
         </TouchableOpacity>
       ))}
@@ -225,6 +259,8 @@ export function HomeScreen() {
         {tabRow}
         {mainTab === 'owner' ? (
           <OwnerDashboardScreen />
+        ) : mainTab === 'dinein' ? (
+          <DineInScreen />
         ) : mainTab === 'documents' ? (
           <DocumentsScreen />
         ) : mainTab === 'cart' ? (
@@ -236,7 +272,16 @@ export function HomeScreen() {
         ) : (
           <ChatScreen />
         )}
-        {footer}
+        {/* Hidden on the Dine-In tab: its "use the assistant instead" chat
+            screen (DineInAssistantScreen) has its own TextInput + keyboard
+            handling via ChatView's internal KeyboardAvoidingView, which can
+            only push ITS OWN content up -- it can't also push this footer
+            (a flex sibling, not a parent, of it) out of the way. Left in
+            place, the footer stayed fixed at the bottom while the keyboard
+            rose over it, covering the message box. Same fix ADAR Front
+            Desk's "Ask ADAR" tab uses for the identical reason -- see
+            apps/frontdesk/src/FrontdeskHomeScreen.tsx. */}
+        {mainTab !== 'dinein' && footer}
       </SafeAreaView>
     );
   }
@@ -245,6 +290,7 @@ export function HomeScreen() {
     <SafeAreaView style={styles.flex} edges={['top', 'bottom']}>
       {header}
       {tabRow}
+      <LocationPickerBar />
 
       <View style={styles.searchSection}>
         <TouchableOpacity
@@ -394,10 +440,26 @@ export function HomeScreen() {
       )}
       </View>
 
+      {showingMenuResults && location && (
+        <Text style={styles.scopeNote}>
+          Showing restaurants within {radiusMiles} mi of {location.label}
+          {location.city ? ' (or in the same city)' : ''} --{' '}
+          <Text style={styles.scopeNoteLink} onPress={() => setRadiusMiles(Math.min(500, radiusMiles * 2))}>
+            widen to {Math.min(500, radiusMiles * 2)} mi
+          </Text>
+        </Text>
+      )}
+
       {priceRange && (priceRange.lowest != null || priceRange.highest != null) && (
         <Text style={styles.priceRangeNote}>
           Prices range from {formatPrice(priceRange.lowest, 'USD')} to {formatPrice(priceRange.highest, 'USD')} across{' '}
           {menuResults.length} {menuResults.length === 1 ? 'match' : 'matches'}.
+        </Text>
+      )}
+
+      {locationRelaxed && location && (
+        <Text style={styles.locationRelaxedNote}>
+          No restaurants found near {location.label} yet -- showing the full marketplace instead.
         </Text>
       )}
 
@@ -420,6 +482,7 @@ export function HomeScreen() {
                 {item.restaurant_name}
                 {item.cuisine_type ? ` · ${item.cuisine_type}` : ''}
                 {item.category ? ` · ${item.category}` : ''}
+                {item.distance_miles != null ? ` · ${item.distance_miles} mi` : ''}
               </Text>
               {item.description ? <Text style={styles.cardDescription}>{item.description}</Text> : null}
               <View style={styles.cardFooter}>
@@ -450,6 +513,7 @@ export function HomeScreen() {
               <Text style={styles.cardTitle}>{item.name}</Text>
               <Text style={styles.cardSubtitle}>
                 {item.cuisine_type || 'Restaurant'} · {item.menu_count} menu {item.menu_count === 1 ? 'item' : 'items'}
+                {item.distance_miles != null ? ` · ${item.distance_miles} mi away` : item.city ? ` · ${item.city}${item.state ? `, ${item.state}` : ''}` : ''}
               </Text>
               {(item.min_price != null || item.max_price != null) && (
                 <Text style={styles.cardDescription}>
@@ -574,6 +638,9 @@ const styles = StyleSheet.create({
   categoryChipText: { fontSize: 12, fontWeight: '600', color: '#5b6472' },
   categoryChipTextActive: { color: '#fff' },
   priceRangeNote: { paddingHorizontal: 16, paddingTop: 10, fontSize: 13, color: '#5b6472' },
+  scopeNote: { paddingHorizontal: 16, paddingTop: 8, fontSize: 12, color: '#6b7280' },
+  scopeNoteLink: { color: BRAND, fontWeight: '700' },
+  locationRelaxedNote: { paddingHorizontal: 16, paddingTop: 8, fontSize: 12, color: '#9a6b00' },
   errorText: {
     marginHorizontal: 16,
     marginTop: 10,

@@ -19,7 +19,8 @@
         "CFBundleDisplayName": "DocIntel",
         "NSMicrophoneUsageDescription": "ADAR DocIntel uses your microphone to transcribe voice questions.",
         "NSPhotoLibraryUsageDescription": "ADAR DocIntel accesses your photo library so you can choose videos to upload."
-      }
+      },
+      "buildNumber": "2"
     },
     "android": {
       "package": "com.agomoniai.adardocintel",

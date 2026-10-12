@@ -5,6 +5,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, AuthTenantConfig, OtpScreen, useAuth } from '@adar/shared-auth';
 import { EatsAccountGate } from './src/EatsAccountGate';
 import { CartProvider } from './src/CartContext';
+import { LocationProvider } from './src/LocationContext';
+import { WorkspaceProvider } from './src/WorkspaceContext';
 import { HomeScreen } from './src/HomeScreen';
 import { ConsentScreen } from './src/ConsentScreen';
 import { useEatsConsent } from './src/useEatsConsent';
@@ -85,8 +87,12 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider tenant={tenant}>
         <CartProvider>
-          <StatusBar style="light" />
-          <Gate />
+          <LocationProvider>
+            <WorkspaceProvider>
+              <StatusBar style="light" />
+              <Gate />
+            </WorkspaceProvider>
+          </LocationProvider>
         </CartProvider>
       </AuthProvider>
     </SafeAreaProvider>

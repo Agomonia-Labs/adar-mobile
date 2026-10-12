@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@adar/shared-auth';
+import { useWorkspace } from './WorkspaceContext';
 import {
   EatsDocument,
   fetchTranscriptText,
@@ -42,30 +43,36 @@ function formatDate(iso: string): string {
   }
 }
 
-/** Documents tab: every restaurant-menu-scribe recording this owner has
- *  made, with its saved transcript -- same idea as DocIntel's own
- *  Documents screen, scoped to doc_domain 'restaurant' (see
- *  GET /api/restaurant/documents in routes/restaurant.py). Read-only: no
- *  upload here, recordings only come from the Owner tab's "Record new
- *  menu" flow. */
+/** Documents tab: every document in the restaurant workspace -- same
+ *  query adar-web's own Documents tab uses (list_workspace_documents,
+ *  `workspace_id=X AND status!='deleted'`, no domain filter), so mobile
+ *  and web always show the identical document set for the same
+ *  workspace; restaurant_name is an extra label the backend adds per
+ *  row, not a filter. Read-only: no upload here, recordings only come
+ *  from the Owner tab's "Record new menu" flow. */
 export function DocumentsScreen() {
   const { session, client } = useAuth();
   const accessToken = session?.accessToken || '';
+  const { workspaceId, error: workspaceError } = useWorkspace();
   const [docs, setDocs] = useState<EatsDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openDoc, setOpenDoc] = useState<EatsDocument | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!workspaceId) {
+      setLoading(false);
+      return;
+    }
     try {
-      const list = await listRestaurantDocuments(client, accessToken);
+      const list = await listRestaurantDocuments(client, accessToken, workspaceId);
       setDocs(list);
     } catch (err) {
       setError('Could not load documents. Pull down to try again.');
     } finally {
       setLoading(false);
     }
-  }, [client, accessToken]);
+  }, [client, accessToken, workspaceId]);
 
   useEffect(() => {
     refresh();
@@ -94,6 +101,7 @@ export function DocumentsScreen() {
         </Text>
       </View>
 
+      {!workspaceId && workspaceError && <Text style={styles.errorText}>{workspaceError}</Text>}
       {error && <Text style={styles.errorText}>{error}</Text>}
 
       {loading && docs.length === 0 ? (

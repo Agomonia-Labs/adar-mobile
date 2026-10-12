@@ -1,9 +1,9 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
   ImageSourcePropType,
-  KeyboardAvoidingView,
+  Keyboard,
   Linking,
   Platform,
   StyleSheet,
@@ -64,19 +64,15 @@ export interface ChatViewProps {
    *  bar sitting outside the chat. Omit entirely for tenants that don't
    *  need it. */
   leadingContent?: React.ReactNode;
-  /** Leave this at its default (0) for almost every screen, including one
-   *  where ChatView sits below other plain sibling Views (a header, a tab
-   *  bar, a context bar -- as in ADAR Front Desk's Ask ADAR tab).
-   *  KeyboardAvoidingView measures its OWN real on-screen position
-   *  automatically (measureInWindow) every time it renders, which already
-   *  accounts for anything above it in the same view hierarchy -- adding
-   *  that height again here double-counts it, over-padding the input row
-   *  well past the keyboard's actual top edge and eating into the space
-   *  left for the conversation above it (this bit Front Desk once; don't
-   *  reintroduce it). The one case this prop is actually for for: content
-   *  above ChatView that lives in a DIFFERENT native layer ChatView's own
-   *  measurement can't see -- e.g. a native React Navigation header --
-   *  where that header's height is the right (and only) value to pass. */
+  /** No longer used. ChatView used to wrap itself in a KeyboardAvoidingView
+   *  and this let a caller correct for content above it in a different
+   *  native layer (e.g. a React Navigation header) that KeyboardAvoidingView's
+   *  own on-screen measurement couldn't see. It's been replaced by a plain
+   *  Keyboard-event listener (see the keyboardHeight state below) -- same
+   *  fix already proven in ADAR Eats' own ChatScreen.tsx -- which reads the
+   *  keyboard's real height directly from the OS instead of trying to
+   *  measure anything, so there's nothing left to correct for. Kept only so
+   *  existing callers passing it don't get a type error; it's a no-op. */
   keyboardVerticalOffset?: number;
 }
 
@@ -227,10 +223,30 @@ function renderTableAsCards(node: any, theme: ChatTheme) {
  * send) and a per-assistant-message "Listen" control -- see
  * ChatViewVoiceProps above.
  */
-export function ChatView({ messages, sending, error, send, theme, placeholder, suggestedQuestions, logo, voice, videoPlayer, leadingContent, keyboardVerticalOffset = 0 }: ChatViewProps) {
+export function ChatView({ messages, sending, error, send, theme, placeholder, suggestedQuestions, logo, voice, videoPlayer, leadingContent }: ChatViewProps) {
   const [draft, setDraft] = useState('');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const mdStyles = markdownStyles(theme);
+
+  // KeyboardAvoidingView used to live here instead of this listener, but it
+  // depends on Android's windowSoftInputMode="adjustResize" actually
+  // resizing the window -- on a modern (edge-to-edge) Android build it
+  // doesn't reliably fire, so KeyboardAvoidingView had nothing to react to
+  // and the keyboard just covered the input row outright. Reading the
+  // keyboard's real height straight from the OS event and padding the
+  // bottom of this view by that amount doesn't depend on that -- it's the
+  // same approach this app's own ChatScreen.tsx already uses successfully.
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => setKeyboardHeight(e.endCoordinates?.height ?? 0));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const submit = () => {
     if (!draft.trim() || sending) return;
@@ -240,11 +256,7 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
   };
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: theme.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={keyboardVerticalOffset}
-    >
+    <View style={[styles.container, { backgroundColor: theme.background, paddingBottom: keyboardHeight }]}>
       {messages.length === 0 ? (
         <View style={styles.emptyState}>
           {leadingContent ? <View style={styles.leadingContentEmpty}>{leadingContent}</View> : null}
@@ -347,7 +359,7 @@ export function ChatView({ messages, sending, error, send, theme, placeholder, s
           <Text style={styles.sendText}>{sending ? '...' : 'Send'}</Text>
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
