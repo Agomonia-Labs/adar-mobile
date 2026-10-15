@@ -50,6 +50,7 @@ import {
 } from './eatsApi';
 import { MenuItemDetailModal } from './MenuItemDetailModal';
 import { DineInManageScreen } from './DineInManageScreen';
+import { EventsManageScreen } from './EventsManageScreen';
 
 const BRAND = '#1b2430';
 
@@ -58,7 +59,7 @@ function formatPrice(price: number | null, currency: string) {
   return `${currency === 'USD' ? '$' : currency + ' '}${price.toFixed(2)}`;
 }
 
-type Screen = 'list' | 'recorder' | 'review' | 'photos' | 'transcript' | 'dineIn';
+type Screen = 'list' | 'recorder' | 'review' | 'photos' | 'transcript' | 'dineIn' | 'events';
 
 /** Restaurant owner side of ADAR Eats: list your restaurants, toggle
  *  marketplace visibility, record a spoken menu walkthrough that the
@@ -192,6 +193,20 @@ export function OwnerDashboardScreen() {
     }
   }
 
+  if (screen === 'events' && activeRestaurantId) {
+    const activeRestaurant = restaurants.find((r) => r.id === activeRestaurantId);
+    if (activeRestaurant) {
+      return (
+        <EventsManageScreen
+          client={client}
+          accessToken={accessToken}
+          restaurant={activeRestaurant}
+          onDone={() => setScreen('list')}
+        />
+      );
+    }
+  }
+
   return (
     <SafeAreaView style={styles.flex} edges={['bottom']}>
       <View style={styles.listHeader}>
@@ -299,6 +314,15 @@ export function OwnerDashboardScreen() {
                   <Text style={styles.manageButtonText}>
                     {item.dine_in_enabled ? 'Dine-In' : 'Set up Dine-In'}
                   </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.manageButton}
+                  onPress={() => {
+                    setActiveRestaurantId(item.id);
+                    setScreen('events');
+                  }}
+                >
+                  <Text style={styles.manageButtonText}>Events</Text>
                 </TouchableOpacity>
               </View>
             </View>

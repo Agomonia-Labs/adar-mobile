@@ -25,6 +25,7 @@ import {
 } from './eatsApi';
 import { OwnerDashboardScreen } from './OwnerDashboardScreen';
 import { DineInScreen } from './DineInScreen';
+import { EventsScreen } from './EventsScreen';
 import { DocumentsScreen } from './DocumentsScreen';
 import { ChatScreen } from './ChatScreen';
 import { CartScreen } from './CartScreen';
@@ -47,7 +48,7 @@ function formatPrice(price: number | null, currency: string) {
   return `${currency === 'USD' ? '$' : currency + ' '}${price.toFixed(2)}`;
 }
 
-type MainTab = 'discover' | 'owner' | 'documents' | 'chat' | 'cart' | 'orders' | 'account' | 'dinein';
+type MainTab = 'discover' | 'owner' | 'documents' | 'chat' | 'cart' | 'orders' | 'account' | 'dinein' | 'events';
 
 /** Discover tab: restaurant discovery + menu search/compare across the
  *  whole marketplace, with AND/OR term combination + category filtering
@@ -229,14 +230,14 @@ export function HomeScreen() {
 
   const tabRow = (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mainTabScroll} contentContainerStyle={styles.mainTabRow}>
-      {(['chat', 'discover', 'dinein', 'cart', 'orders', 'owner', 'documents', 'account'] as MainTab[]).map((t) => (
+      {(['chat', 'discover', 'dinein', 'events', 'cart', 'orders', 'owner', 'documents', 'account'] as MainTab[]).map((t) => (
         <TouchableOpacity
           key={t}
           style={[styles.mainTabButton, mainTab === t && styles.mainTabButtonActive]}
           onPress={() => setMainTab(t)}
         >
           <Text style={[styles.mainTabText, mainTab === t && styles.mainTabTextActive]}>
-            {t === 'chat' ? 'Chat' : t === 'discover' ? 'Discover' : t === 'dinein' ? 'Dine-In' : t === 'cart' ? `Cart${cart.itemCount ? ` (${cart.itemCount})` : ''}` : t === 'orders' ? 'Orders' : t === 'owner' ? 'Owner' : t === 'documents' ? 'Documents' : 'Account'}
+            {t === 'chat' ? 'Chat' : t === 'discover' ? 'Discover' : t === 'dinein' ? 'Dine-In' : t === 'events' ? 'Events' : t === 'cart' ? `Cart${cart.itemCount ? ` (${cart.itemCount})` : ''}` : t === 'orders' ? 'Orders' : t === 'owner' ? 'Owner' : t === 'documents' ? 'Documents' : 'Account'}
           </Text>
         </TouchableOpacity>
       ))}
@@ -261,6 +262,8 @@ export function HomeScreen() {
           <OwnerDashboardScreen />
         ) : mainTab === 'dinein' ? (
           <DineInScreen />
+        ) : mainTab === 'events' ? (
+          <EventsScreen />
         ) : mainTab === 'documents' ? (
           <DocumentsScreen />
         ) : mainTab === 'cart' ? (

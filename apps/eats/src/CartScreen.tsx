@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -13,7 +13,8 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useAuth } from '@adar/shared-auth';
 import { useCart } from './CartContext';
-import { EatsOrderResponse, checkoutOrder, createOrderDraft, getOrder } from './eatsApi';
+import { EatsOrderResponse, checkoutOrder, createOrderDraft, getOrder, getRestaurantDetail } from './eatsApi';
+import { PickupTimePicker, PickupTimeValue } from './PickupTimePicker';
 
 const BRAND = '#1b2430';
 
@@ -34,11 +35,32 @@ export function CartScreen({ onViewOrders }: { onViewOrders?: () => void }) {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
-  const [pickupTime, setPickupTime] = useState('');
+  const [pickup, setPickup] = useState<PickupTimeValue>({ mode: 'asap', date: '', time: '' });
+  const [restaurantTimezone, setRestaurantTimezone] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
   const [draft, setDraft] = useState<EatsOrderResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Fetched once per restaurant so the pickup-time picker can show "it's
+  // currently ... at the restaurant" and default the date picker to today
+  // THERE -- the actual instant the backend stores is always computed
+  // server-side from the restaurant's own timezone regardless of whether
+  // this fetch succeeds, so a failure here only costs the UX nicety, never
+  // correctness.
+  useEffect(() => {
+    let cancelled = false;
+    if (cart.restaurantId) {
+      getRestaurantDetail(client, accessToken, cart.restaurantId)
+        .then((data) => {
+          if (!cancelled) setRestaurantTimezone(data.restaurant.timezone || null);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [cart.restaurantId, client, accessToken]);
 
   const reviewOrder = async () => {
     if (!cart.items.length || !cart.restaurantId) {
@@ -64,7 +86,9 @@ export function CartScreen({ onViewOrders }: { onViewOrders?: () => void }) {
         customerName,
         customerPhone,
         customerEmail,
-        pickupTimeRequest: pickupTime,
+        pickupTimeRequest: pickup.mode === 'asap' ? 'ASAP' : '',
+        pickupDate: pickup.mode === 'scheduled' ? pickup.date : null,
+        pickupTime: pickup.mode === 'scheduled' ? pickup.time : null,
         specialInstructions: notes,
       });
       setDraft(data);
@@ -191,8 +215,8 @@ export function CartScreen({ onViewOrders }: { onViewOrders?: () => void }) {
               <TextInput style={styles.input} value={customerPhone} onChangeText={setCustomerPhone} keyboardType="phone-pad" />
               <Text style={styles.fieldLabel}>Email</Text>
               <TextInput style={styles.input} value={customerEmail} onChangeText={setCustomerEmail} keyboardType="email-address" autoCapitalize="none" />
-              <Text style={styles.fieldLabel}>Pickup time request</Text>
-              <TextInput style={styles.input} value={pickupTime} onChangeText={setPickupTime} placeholder="ASAP or 6:30 PM" />
+              <Text style={styles.fieldLabel}>Pickup time</Text>
+              <PickupTimePicker timezone={restaurantTimezone} value={pickup} onChange={setPickup} />
               <Text style={styles.fieldLabel}>Order notes</Text>
               <TextInput style={[styles.input, styles.multiline]} value={notes} onChangeText={setNotes} multiline />
             </View>

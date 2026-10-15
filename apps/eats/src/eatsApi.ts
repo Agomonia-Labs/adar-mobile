@@ -35,6 +35,11 @@ export interface EatsRestaurant {
   distance_miles?: number | null;
   dine_in_enabled?: boolean;
   scheduling_practice_id?: string;
+  // IANA timezone (e.g. "America/New_York"), resolved from lat/lng by the
+  // backend's geocoding (services/geocoding.py's get_timezone). Used to
+  // show/pick a pickup time as the RESTAURANT's own local wall-clock time
+  // -- see PickupTimePicker.tsx.
+  timezone?: string;
 }
 
 /** Location scoping shared by listMarketplaceRestaurants/searchMarketplaceMenu/
@@ -908,11 +913,24 @@ export interface EatsOrder {
   customer_phone: string;
   customer_email: string;
   pickup_time_request: string;
+  // Pre-formatted in the restaurant's own local time by the backend (see
+  // routes/restaurant.py's _format_pickup_time_request) -- "ASAP"/blank
+  // pass through unchanged. Prefer this over pickup_time_request for
+  // display; only present on owner/customer order-listing responses.
+  pickup_time_display?: string;
+  restaurant_timezone?: string;
   special_instructions: string;
   subtotal: number;
   currency: string;
   item_count?: number;
   order_items?: EatsOrderItem[];
+  // Set only for an order placed at an event's stall (reuses this same
+  // restaurant_orders row/pipeline unmodified -- see routes/
+  // restaurant_events.py's create_event_order_draft) -- null/undefined for
+  // an ordinary carryout order.
+  event_id?: string | null;
+  stall_id?: string | null;
+  metadata?: { event_name?: string; stall_name?: string; [key: string]: unknown } | null;
   created_at: string;
   updated_at: string;
 }
@@ -948,6 +966,12 @@ export async function createOrderDraft(
     customerPhone?: string;
     customerEmail?: string;
     pickupTimeRequest?: string;
+    // Structured alternative -- combined server-side with the
+    // restaurant's own timezone (see routes/restaurant.py's
+    // _resolve_pickup_time_request). Omit both to keep pickupTimeRequest
+    // as freeform text, e.g. the literal "ASAP".
+    pickupDate?: string | null;
+    pickupTime?: string | null;
     specialInstructions?: string;
     notes?: string;
   }
@@ -972,6 +996,8 @@ export async function createOrderDraft(
       customer_phone: params.customerPhone || '',
       customer_email: params.customerEmail || '',
       pickup_time_request: params.pickupTimeRequest || '',
+      pickup_date: params.pickupDate ?? null,
+      pickup_time: params.pickupTime ?? null,
       special_instructions: params.specialInstructions || '',
       notes: params.notes || 'Carryout order created from ADAR Eats mobile',
     },
@@ -1831,4 +1857,451 @@ export async function getOwnerDineInBookings(
     params: { days_ahead: daysAhead },
   });
   return data;
+}
+
+// ── Events & Stalls ──────────────────────────────────────────────────────────
+// adar-eats mobile's event food-ordering feature: customers browse live
+// events, pick a stall, and order from its (possibly event-only) menu;
+// owners request a stall at an event open for onboarding, then manage
+// their stall's menu. Backend: routes/restaurant_events.py, mounted
+// alongside routes/restaurant.py under the same /api/restaurant prefix --
+// see adar-rag/ui/eats/src/services/api.js for the web app's equivalent
+// wrapper, which these mirror field-for-field. Admin event creation/
+// approval has no mobile screen -- that stays a web-only back-office
+// task (AdminEventsPage.jsx), same scoping choice the dine-in feature's
+// plan made for its own admin-ish setup work.
+
+export interface EatsEvent {
+  id: string;
+  name: string;
+  venue: string;
+  description?: string;
+  start_at: string;
+  end_at: string;
+  status: string; // draft | onboarding | live | closed
+  banner_gcs_path?: string | null;
+}
+
+export interface EatsEventStall {
+  id: string;
+  event_id: string;
+  restaurant_id: string;
+  stall_name: string;
+  stall_number: string;
+  location_zone: string;
+  space_power_needs: string;
+  hours: Record<string, unknown>;
+  status: string; // requested | approved | rejected | active | closed
+  accepting_orders: boolean;
+  rejection_reason: string;
+  requested_at: string | null;
+  approved_at: string | null;
+  event_name?: string;
+  event_status?: string;
+  // Only present on GET .../stalls/{stall_id}/menu's public response (see
+  // get_stall_menu_public) -- the stall's own restaurant's IANA timezone.
+  restaurant_timezone?: string | null;
+  event_start_at?: string | null;
+}
+
+export interface EatsEventDetail extends EatsEvent {
+  stalls: EatsEventStall[];
+}
+
+export interface EatsEventClosed {
+  id: string;
+  name: string;
+  status: 'closed';
+  ended: true;
+  message: string;
+}
+
+export interface EatsEventMenuItem {
+  id: string;
+  stall_id: string;
+  menu_item_id: string | null;
+  item_name: string | null;
+  category: string;
+  description: string;
+  price: number | null;
+  currency: string;
+  image_gcs_path: string | null;
+  image_url: string | null;
+  has_inherited_photo?: boolean;
+  availability: string;
+}
+
+export interface EatsEventStallWithMenu extends EatsEventStall {
+  menu_items: EatsEventMenuItem[];
+}
+
+/** Public stall-menu item shape, as the customer ordering screen and the
+ *  event assistant see it -- already resolved to display-ready
+ *  name/category/description/price (the regular-menu fallback is applied
+ *  server-side) and a signed image_url. */
+export interface EatsEventPublicMenuItem {
+  id: string;
+  item_name: string;
+  category: string;
+  description: string;
+  price: number | null;
+  currency: string;
+  image_url: string | null;
+}
+
+export interface EatsEventStallMenuPublic {
+  stall: EatsEventStall;
+  menu_items: EatsEventPublicMenuItem[];
+}
+
+/** GET /api/restaurant/events/live -- customer-facing event discovery,
+ *  guest-accessible. */
+export async function listLiveEvents(client: AxiosInstance, accessToken: string): Promise<EatsEvent[]> {
+  const { data } = await client.get('/api/restaurant/events/live', {
+    headers: authHeaders(accessToken),
+  });
+  return (data?.events as EatsEvent[]) || [];
+}
+
+/** GET /api/restaurant/events/available -- events currently open for
+ *  stall onboarding, what an owner picks from to request a stall. */
+export async function listAvailableEvents(client: AxiosInstance, accessToken: string): Promise<EatsEvent[]> {
+  const { data } = await client.get('/api/restaurant/events/available', {
+    headers: authHeaders(accessToken),
+  });
+  return (data?.events as EatsEvent[]) || [];
+}
+
+/** GET /api/restaurant/events/{id} -- full event + its active stalls. A
+ *  closed event comes back as {ended: true, message} instead -- callers
+ *  should check `ended` before reading `stalls`. */
+export async function getEvent(
+  client: AxiosInstance,
+  accessToken: string,
+  eventId: string
+): Promise<EatsEventDetail | EatsEventClosed> {
+  const { data } = await client.get(`/api/restaurant/events/${eventId}`, {
+    headers: authHeaders(accessToken),
+  });
+  return data;
+}
+
+/** GET /api/restaurant/events/{eventId}/stalls/{stallId}/menu -- public,
+ *  guest-accessible stall menu for ordering; backs both the customer
+ *  ordering screen and the event-scoped assistant's context. */
+export async function getStallMenuPublic(
+  client: AxiosInstance,
+  accessToken: string,
+  eventId: string,
+  stallId: string
+): Promise<EatsEventStallMenuPublic> {
+  const { data } = await client.get(`/api/restaurant/events/${eventId}/stalls/${stallId}/menu`, {
+    headers: authHeaders(accessToken),
+  });
+  return data as EatsEventStallMenuPublic;
+}
+
+export interface EatsEventOrderItemInput {
+  event_menu_item_id: string;
+  quantity: number;
+  instructions?: string;
+}
+
+/** POST /api/restaurant/events/{eventId}/stalls/{stallId}/order-draft --
+ *  the event-ordering equivalent of createOrderDraft above: a plain
+ *  restaurant_orders row tagged with event_id/stall_id, so the SAME
+ *  checkoutOrder/getOrder/listMyOrders calls work on it unmodified once
+ *  this draft exists. */
+export async function createEventOrderDraft(
+  client: AxiosInstance,
+  accessToken: string,
+  eventId: string,
+  stallId: string,
+  params: {
+    items: EatsEventOrderItemInput[];
+    customerName?: string;
+    customerPhone?: string;
+    customerEmail?: string;
+    pickupTimeRequest?: string;
+    pickupDate?: string | null;
+    pickupTime?: string | null;
+    specialInstructions?: string;
+  }
+): Promise<EatsOrderResponse> {
+  const { data } = await client.post(
+    `/api/restaurant/events/${eventId}/stalls/${stallId}/order-draft`,
+    {
+      items: params.items,
+      customer_name: params.customerName || '',
+      customer_phone: params.customerPhone || '',
+      customer_email: params.customerEmail || '',
+      pickup_time_request: params.pickupTimeRequest || '',
+      pickup_date: params.pickupDate ?? null,
+      pickup_time: params.pickupTime ?? null,
+      special_instructions: params.specialInstructions || '',
+    },
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsOrderResponse;
+}
+
+// ── Owner: stall request + management ────────────────────────────────────
+
+/** POST /api/restaurant/restaurants/{restaurantId}/stalls -- request a
+ *  stall at an event currently open for onboarding. */
+export async function requestStall(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  params: { eventId: string; stallName?: string; locationZone?: string; spacePowerNeeds?: string }
+): Promise<EatsEventStall> {
+  const { data } = await client.post(
+    `/api/restaurant/restaurants/${restaurantId}/stalls`,
+    {
+      event_id: params.eventId,
+      stall_name: params.stallName || '',
+      location_zone: params.locationZone || '',
+      space_power_needs: params.spacePowerNeeds || '',
+    },
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsEventStall;
+}
+
+/** GET /api/restaurant/restaurants/{restaurantId}/stalls -- this
+ *  restaurant's own stalls across every event it has requested/been
+ *  approved for. */
+export async function listMyStalls(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string
+): Promise<EatsEventStall[]> {
+  const { data } = await client.get(`/api/restaurant/restaurants/${restaurantId}/stalls`, {
+    headers: authHeaders(accessToken),
+  });
+  return (data?.stalls as EatsEventStall[]) || [];
+}
+
+/** GET /api/restaurant/restaurants/{restaurantId}/stalls/{stallId} -- one
+ *  stall's detail + its event menu items (owner's own view -- unlike the
+ *  public shape above, these include image_gcs_path/has_inherited_photo). */
+export async function getMyStall(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  stallId: string
+): Promise<EatsEventStallWithMenu> {
+  const { data } = await client.get(`/api/restaurant/restaurants/${restaurantId}/stalls/${stallId}`, {
+    headers: authHeaders(accessToken),
+  });
+  return data as EatsEventStallWithMenu;
+}
+
+/** PUT /api/restaurant/restaurants/{restaurantId}/stalls/{stallId} --
+ *  PATCH-style partial update (only sent fields change). Also how an
+ *  owner pauses/resumes new orders mid-rush (accepting_orders alone stays
+ *  editable even on a rejected stall / after the event closes --
+ *  everything else is frozen in those states). */
+export async function updateMyStall(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  stallId: string,
+  patch: {
+    stallName?: string;
+    locationZone?: string;
+    spacePowerNeeds?: string;
+    hours?: Record<string, unknown>;
+    acceptingOrders?: boolean;
+  }
+): Promise<EatsEventStall> {
+  const body: Record<string, unknown> = {};
+  if (patch.stallName !== undefined) body.stall_name = patch.stallName;
+  if (patch.locationZone !== undefined) body.location_zone = patch.locationZone;
+  if (patch.spacePowerNeeds !== undefined) body.space_power_needs = patch.spacePowerNeeds;
+  if (patch.hours !== undefined) body.hours = patch.hours;
+  if (patch.acceptingOrders !== undefined) body.accepting_orders = patch.acceptingOrders;
+  const { data } = await client.put(`/api/restaurant/restaurants/${restaurantId}/stalls/${stallId}`, body, {
+    headers: authHeaders(accessToken),
+  });
+  return data as EatsEventStall;
+}
+
+/** GET .../stalls/{stallId}/menu-items -- owner's own event menu item list. */
+export async function listStallMenuItems(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  stallId: string
+): Promise<EatsEventMenuItem[]> {
+  const { data } = await client.get(
+    `/api/restaurant/restaurants/${restaurantId}/stalls/${stallId}/menu-items`,
+    { headers: authHeaders(accessToken) }
+  );
+  return (data?.menu_items as EatsEventMenuItem[]) || [];
+}
+
+export interface EatsEventMenuItemInput {
+  menuItemId?: string | null;
+  itemName?: string;
+  category?: string;
+  description?: string;
+  price?: number | null;
+  currency?: string;
+  availability?: string;
+}
+
+/** POST .../stalls/{stallId}/menu-items -- link an existing regular menu
+ *  item (menuItemId, with an optional price override), or stand up a
+ *  net-new event-only item (itemName + price required). A linked item
+ *  with no event-specific photo of its own inherits the regular item's
+ *  photo -- see image_url/has_inherited_photo on the returned row. */
+export async function createStallMenuItem(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  stallId: string,
+  input: EatsEventMenuItemInput
+): Promise<EatsEventMenuItem> {
+  const { data } = await client.post(
+    `/api/restaurant/restaurants/${restaurantId}/stalls/${stallId}/menu-items`,
+    {
+      menu_item_id: input.menuItemId ?? null,
+      item_name: input.itemName,
+      category: input.category || '',
+      description: input.description || '',
+      price: input.price ?? null,
+      currency: input.currency || 'USD',
+      availability: input.availability || 'available',
+    },
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsEventMenuItem;
+}
+
+/** PUT .../stalls/{stallId}/menu-items/{itemId} -- PATCH-style partial update. */
+export async function updateStallMenuItem(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  stallId: string,
+  itemId: string,
+  patch: Partial<{
+    itemName: string;
+    category: string;
+    description: string;
+    price: number | null;
+    availability: string;
+  }>
+): Promise<EatsEventMenuItem> {
+  const body: Record<string, unknown> = {};
+  if (patch.itemName !== undefined) body.item_name = patch.itemName;
+  if (patch.category !== undefined) body.category = patch.category;
+  if (patch.description !== undefined) body.description = patch.description;
+  if (patch.price !== undefined) body.price = patch.price;
+  if (patch.availability !== undefined) body.availability = patch.availability;
+  const { data } = await client.put(
+    `/api/restaurant/restaurants/${restaurantId}/stalls/${stallId}/menu-items/${itemId}`,
+    body,
+    { headers: authHeaders(accessToken) }
+  );
+  return data as EatsEventMenuItem;
+}
+
+/** DELETE .../stalls/{stallId}/menu-items/{itemId} */
+export async function deleteStallMenuItem(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  stallId: string,
+  itemId: string
+): Promise<void> {
+  await client.delete(`/api/restaurant/restaurants/${restaurantId}/stalls/${stallId}/menu-items/${itemId}`, {
+    headers: authHeaders(accessToken),
+  });
+}
+
+/** POST .../menu-items/{itemId}/photo -- upload/replace this event item's
+ *  OWN photo (overrides an inherited regular-menu photo for this event
+ *  only). Mirrors uploadMenuItemPhoto above exactly. */
+export async function uploadStallMenuItemPhoto(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  stallId: string,
+  itemId: string,
+  photo: { uri: string; mimeType: string; name: string }
+): Promise<{ item_id: string; image_url: string | null }> {
+  const form = new FormData();
+  form.append('photo', { uri: photo.uri, name: photo.name, type: photo.mimeType } as unknown as Blob);
+  const { data } = await client.post(
+    `/api/restaurant/restaurants/${restaurantId}/stalls/${stallId}/menu-items/${itemId}/photo`,
+    form,
+    { headers: { ...authHeaders(accessToken), 'Content-Type': 'multipart/form-data' } }
+  );
+  return data;
+}
+
+/** DELETE .../menu-items/{itemId}/photo -- removes this item's OWN photo
+ *  override; falls back to the linked regular item's photo if any,
+ *  otherwise no photo. */
+export async function deleteStallMenuItemPhoto(
+  client: AxiosInstance,
+  accessToken: string,
+  restaurantId: string,
+  stallId: string,
+  itemId: string
+): Promise<{ item_id: string; image_url: string | null }> {
+  const { data } = await client.delete(
+    `/api/restaurant/restaurants/${restaurantId}/stalls/${stallId}/menu-items/${itemId}/photo`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data;
+}
+
+/** The event-scoped Order Assistant's tappable menu action -- mirrors the
+ *  shape backend's _event_action_row builds (routes/chat.py), which is
+ *  every column from _fetch_event_menu_rows plus the overridden
+ *  menu_item_id/restaurant_id pair that's internal plumbing only (the
+ *  generic cross-mode action-matching code keys on those two names
+ *  regardless of mode). Use the EXPLICIT fields below -- event_menu_item_id/
+ *  stall_id/stall_name/accepting_orders -- to build the actual
+ *  add-to-cart call, never menu_item_id/restaurant_id. */
+export interface EatsEventChatMenuAction {
+  id: string;
+  event_menu_item_id: string;
+  stall_id: string;
+  event_id: string;
+  stall_name: string;
+  accepting_orders: boolean;
+  restaurant_name: string;
+  item_name: string;
+  category?: string;
+  description?: string;
+  price?: number | null;
+  currency?: string;
+  availability?: string;
+}
+
+/** Streams /api/chat/stream scoped to one event (event_id instead of
+ *  marketplace: true) -- the event-scoped Order Assistant. Mirrors
+ *  streamRestaurantChat exactly, same streamSse plumbing. */
+export function streamEventChat(
+  baseURL: string,
+  accessToken: string,
+  params: {
+    question: string;
+    history?: { role: string; content: string }[];
+    eventId: string;
+    responseLanguage?: string;
+  },
+  handlers: ChatStreamHandlers
+) {
+  return streamSse(baseURL, '/api/chat/stream', accessToken, {
+    question: params.question,
+    document_ids: [],
+    history: params.history ?? [],
+    event_id: params.eventId,
+    response_language: params.responseLanguage,
+  }, handlers);
 }

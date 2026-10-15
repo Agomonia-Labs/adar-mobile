@@ -80,12 +80,23 @@ function OrderCard({
           <Text style={styles.statusPillText}>{STATUS_LABELS[order.status] || order.status}</Text>
         </View>
       </View>
+      {order.event_id && (
+        <Text style={styles.eventTag}>
+          {'\ud83c\udfaa'} {order.metadata?.event_name || 'Event order'}
+          {order.metadata?.stall_name ? ` · ${order.metadata.stall_name}` : ''}
+        </Text>
+      )}
       {mode === 'owner' && (
         <Text style={styles.muted}>
           Customer: {order.customer_name || 'Not provided'}{order.customer_phone ? ` · ${order.customer_phone}` : ''}
         </Text>
       )}
-      {order.pickup_time_request ? <Text style={styles.muted}>Pickup: {order.pickup_time_request}</Text> : null}
+      {(() => {
+        const display = order.pickup_time_display || order.pickup_time_request;
+        if (!display) return null;
+        const suffix = display !== 'ASAP' ? (mode === 'owner' ? ' (your local time)' : " (restaurant's local time)") : '';
+        return <Text style={styles.muted}>Pickup: {display}{suffix}</Text>;
+      })()}
       <OrderItemsList items={order.order_items} />
 
       {mode === 'owner' && (
@@ -327,6 +338,7 @@ const styles = StyleSheet.create({
   cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   cardTitle: { fontSize: 15, fontWeight: '700', color: '#14181f' },
   muted: { fontSize: 12.5, color: '#5b6472', marginTop: 2 },
+  eventTag: { fontSize: 11.5, fontWeight: '700', color: '#b7791f', marginTop: 4 },
   statusPill: { backgroundColor: '#eef1f0', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   statusPillText: { fontSize: 11, fontWeight: '700', color: BRAND },
   itemLine: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
