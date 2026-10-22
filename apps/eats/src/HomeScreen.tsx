@@ -275,16 +275,17 @@ export function HomeScreen() {
         ) : (
           <ChatScreen />
         )}
-        {/* Hidden on the Dine-In tab: its "use the assistant instead" chat
-            screen (DineInAssistantScreen) has its own TextInput + keyboard
-            handling via ChatView's internal KeyboardAvoidingView, which can
-            only push ITS OWN content up -- it can't also push this footer
-            (a flex sibling, not a parent, of it) out of the way. Left in
-            place, the footer stayed fixed at the bottom while the keyboard
-            rose over it, covering the message box. Same fix ADAR Front
-            Desk's "Ask ADAR" tab uses for the identical reason -- see
-            apps/frontdesk/src/FrontdeskHomeScreen.tsx. */}
-        {mainTab !== 'dinein' && footer}
+        {/* Hidden on the Dine-In and Events tabs: their "use the assistant
+            instead" chat screens (DineInAssistantScreen, EventAssistantScreen)
+            have their own TextInput + keyboard handling (ChatView's internal
+            KeyboardAvoidingView for Dine-In; EventAssistantScreen's own
+            KeyboardAvoidingView), which can only push THEIR OWN content up --
+            it can't also push this footer (a flex sibling, not a parent, of
+            it) out of the way. Left in place, the footer stayed fixed at the
+            bottom while the keyboard rose over it, covering the message box.
+            Same fix ADAR Front Desk's "Ask ADAR" tab uses for the identical
+            reason -- see apps/frontdesk/src/FrontdeskHomeScreen.tsx. */}
+        {mainTab !== 'dinein' && mainTab !== 'events' && footer}
       </SafeAreaView>
     );
   }

@@ -166,6 +166,19 @@ export function EventsScreen() {
     [cart, selectedEvent, selectedStall]
   );
 
+  // The assistant screen can add to cart from the top-level 'stalls'
+  // view, before any stall's menu has been opened -- selectedStall may
+  // not match cart.stallId there, or may still be null. Resolve the
+  // stall the cart actually belongs to from the already-loaded event
+  // detail's own stalls list instead of assuming selectedStall is it.
+  const goToCart = () => {
+    if (!selectedEvent || !cart.stallId) return;
+    const stallForCart = selectedEvent.stalls.find((st) => st.id === cart.stallId) || selectedStall;
+    if (!stallForCart) return;
+    setSelectedStall(stallForCart);
+    setScreen('cart');
+  };
+
   const backToEvents = () => {
     setSelectedEvent(null);
     setEventEnded(null);
@@ -235,8 +248,8 @@ export function EventsScreen() {
             <Text style={styles.emptyText}>This stall hasn't posted its menu yet.</Text>
           )}
         </ScrollView>
-        {cart.stallId === selectedStall.id && cart.items.length > 0 && (
-          <TouchableOpacity style={styles.cartBar} onPress={() => setScreen('cart')}>
+        {cart.items.length > 0 && (
+          <TouchableOpacity style={styles.cartBar} onPress={goToCart}>
             <Text style={styles.cartBarText}>
               View cart · {cart.itemCount} item{cart.itemCount === 1 ? '' : 's'} · {formatMoney(cart.subtotal)}
             </Text>
@@ -274,7 +287,7 @@ export function EventsScreen() {
           <FlatList
             data={selectedEvent.stalls}
             keyExtractor={(s) => s.id}
-            contentContainerStyle={{ padding: 16, gap: 10 }}
+            contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: cart.items.length > 0 ? 90 : 16 }}
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.stallCard} onPress={() => openStall(item)}>
                 <Text style={styles.stallName}>{item.stall_name}</Text>
@@ -286,6 +299,13 @@ export function EventsScreen() {
           />
         )}
         {loadingMenu && <ActivityIndicator style={{ marginTop: 12 }} color={BRAND} />}
+        {cart.items.length > 0 && (
+          <TouchableOpacity style={styles.cartBar} onPress={goToCart}>
+            <Text style={styles.cartBarText}>
+              View cart · {cart.itemCount} item{cart.itemCount === 1 ? '' : 's'} · {formatMoney(cart.subtotal)}
+            </Text>
+          </TouchableOpacity>
+        )}
       </SafeAreaView>
     );
   }

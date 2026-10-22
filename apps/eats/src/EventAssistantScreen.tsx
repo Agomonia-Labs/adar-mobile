@@ -1,8 +1,9 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Keyboard,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -16,6 +17,10 @@ import { MarkdownMessage } from './MarkdownMessage';
 import { useEventCart } from './EventCartContext';
 
 const BRAND = '#1b2430';
+// Visible margin added on top of the keyboard's own measured height, so
+// the input row clears it with room to spare instead of sitting flush
+// against (or, as reported, behind) its top edge.
+const EXTRA_KEYBOARD_CLEARANCE = 24;
 
 interface Message {
   id: string;
@@ -45,8 +50,32 @@ export function EventAssistantScreen({ event, onBack }: { event: EatsEventDetail
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [addedKey, setAddedKey] = useState<string | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
   const cancelRef = useRef<{ cancel: () => void } | null>(null);
+
+  // Drive keyboard avoidance ourselves instead of leaning on
+  // KeyboardAvoidingView's automatic measurement: nested inside
+  // HomeScreen's SafeAreaView + tab-button row, its "padding" behavior
+  // only shifted the input row exactly flush with the keyboard's top
+  // edge (and did nothing at all on Android, where `behavior` was left
+  // undefined). Tracking the real keyboard height ourselves and padding
+  // by MORE than that (EXTRA_KEYBOARD_CLEARANCE) guarantees the textbox
+  // always clears the keyboard with a visible margin, on both platforms.
+  const [keyboardPad, setKeyboardPad] = useState(0);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e: any) => {
+      const height = e?.endCoordinates?.height || 0;
+      setKeyboardPad(height > 0 ? height + EXTRA_KEYBOARD_CLEARANCE : 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardPad(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const onSend = async () => {
     const question = input.trim();
@@ -142,6 +171,14 @@ export function EventAssistantScreen({ event, onBack }: { event: EatsEventDetail
       stallId: action.stall_id,
       stallName: action.stall_name,
     });
+    // Visible confirmation right on the chip -- previously this call
+    // succeeded silently (the shared EventCartContext state DID update),
+    // but nothing on screen changed, and the "View cart" bar only existed
+    // on the per-stall menu screen, not here or on the stalls list --
+    // so tapping a chip looked like it did nothing. Mirrors the
+    // "Added ✓" pattern EventsScreen.tsx's own +Add button uses.
+    setAddedKey(action.event_menu_item_id);
+    setTimeout(() => setAddedKey((k) => (k === action.event_menu_item_id ? null : k)), 1200);
   };
 
   return (
@@ -154,6 +191,7 @@ export function EventAssistantScreen({ event, onBack }: { event: EatsEventDetail
         <View style={{ width: 50 }} />
       </View>
 
+      <View style={[styles.flex, { paddingBottom: keyboardPad }]}>
       <FlatList
         ref={listRef}
         style={styles.flex}
@@ -197,8 +235,9 @@ export function EventAssistantScreen({ event, onBack }: { event: EatsEventDetail
                 {item.menuActions.map((action) => (
                   <TouchableOpacity key={action.event_menu_item_id} style={styles.actionChip} onPress={() => addFromChip(action)}>
                     <Text style={styles.actionChipText}>
-                      + Add {action.item_name}
-                      {action.price != null ? ` ($${Number(action.price).toFixed(2)})` : ''}
+                      {addedKey === action.event_menu_item_id
+                        ? `Added ${action.item_name} ✓`
+                        : `+ Add ${action.item_name}${action.price != null ? ` ($${Number(action.price).toFixed(2)})` : ''}`}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -224,6 +263,7 @@ export function EventAssistantScreen({ event, onBack }: { event: EatsEventDetail
         >
           <Text style={styles.sendButtonText}>Send</Text>
         </TouchableOpacity>
+      </View>
       </View>
     </SafeAreaView>
   );
