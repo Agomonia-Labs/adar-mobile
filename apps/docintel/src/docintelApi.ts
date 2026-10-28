@@ -1,5 +1,5 @@
 import { AxiosInstance } from 'axios';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // Client for adar-rag/backend (the DocIntel API) -- a user-shaped
 // deployment, distinct from adar-core's team-shaped domains (Front

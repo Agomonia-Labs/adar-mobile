@@ -23,13 +23,14 @@
       "buildNumber": "2"
     },
     "android": {
-      "package": "com.agomoniai.adardocintel",
+      "package": "com.agomoniai.docintel",
       "adaptiveIcon": {
         "backgroundColor": "#121F10",
         "foregroundImage": "./assets/icon.png"
       },
       "permissions": [
-        "RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO"
       ],
       "softwareKeyboardLayoutMode": "resize"
     },
@@ -40,7 +41,24 @@
         {
           "photosPermission": "ADAR DocIntel accesses your photo library so you can choose videos to upload."
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "buildToolsVersion": "36.0.0"
+          }
+        }
       ]
-    ]
+    ],
+    "newArchEnabled": true,
+    "owner": "brajadas",
+    "extra": {
+      "eas": {
+        "projectId": "572a6a8e-a997-470e-879a-bccd1dbb0a15"
+      }
+    }
   }
 }

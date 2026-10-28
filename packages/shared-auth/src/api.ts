@@ -6,9 +6,13 @@ import type { AuthTenantConfig, LoginResponse, AuthSuccessPayload } from './type
 // adar-core/api/routes/auth.py: router = APIRouter(prefix="/api/auth")).
 
 export function createAuthClient(tenant: AuthTenantConfig): AxiosInstance {
+  const headers: Record<string, string> = {};
+  if (tenant.apiKey) headers['X-API-Key'] = tenant.apiKey;
+  if (tenant.clientApp) headers['X-Client-App'] = tenant.clientApp;
+
   const client = axios.create({
     baseURL: tenant.apiUrl,
-    headers: tenant.apiKey ? { 'X-API-Key': tenant.apiKey } : undefined,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
     // 2 minutes -- ARCL's ADK orchestration can take a while on
     // complex queries (multi-tool lookups, standings/stats joins), and
     // the default 20s was cutting those off client-side before the

@@ -76,12 +76,23 @@ export function AuthProvider({
 
   useEffect(() => {
     let cancelled = false;
-    loadSession().then((restored) => {
-      if (!cancelled) {
-        setSession(restored);
-        setLoading(false);
-      }
-    });
+    loadSession()
+      .then((restored) => {
+        if (!cancelled) {
+          setSession(restored);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        // Never let a SecureStore read failure hang 'loading' forever --
+        // that leaves Gate() rendering null (a white screen) permanently.
+        // Fail open to the signed-out state instead.
+        console.warn('[AuthProvider] loadSession() failed, treating as signed out:', err);
+        if (!cancelled) {
+          setSession(null);
+          setLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };

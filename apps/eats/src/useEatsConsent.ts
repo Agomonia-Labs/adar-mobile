@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import * as SecureStore from 'expo-secure-store';
+import * as FileSystem from 'expo-file-system';
 
 // Bump this key's version suffix if the disclosure's substance changes
 // materially (e.g. a new AI processor is added). See ConsentScreen.tsx for
@@ -10,7 +10,19 @@ import * as SecureStore from 'expo-secure-store';
 // line in a privacy policy nobody opens. Same pattern as
 // docintel/useDocIntelConsent.ts, frontdesk/useFrontdeskConsent.ts and
 // geetabitan/useAiConsent.ts.
+//
+// Deliberately NOT expo-secure-store (the iOS Keychain) -- a Keychain item
+// survives an app delete/reinstall on the same device, which caused a
+// real App Review regression on ADAR DocIntel: a device that had already
+// granted consent on an earlier build skipped the consent screen on every
+// later resubmission reviewed on that same device, so the reviewer never
+// saw the AI-data-sharing disclosure and Apple rejected again even though
+// the screen existed in the code. The document directory is wiped by iOS
+// when the app is deleted, so a fresh install (exactly what App Review
+// does for each review pass) always sees the consent screen again. Real
+// users still only see it once per install.
 const CONSENT_KEY = 'eats_ai_consent_v1';
+const CONSENT_FILE = `${FileSystem.documentDirectory}${CONSENT_KEY}.json`;
 
 export type ConsentState = 'loading' | 'given' | 'needed';
 
@@ -19,12 +31,12 @@ export function useEatsConsent() {
 
   useEffect(() => {
     let cancelled = false;
-    SecureStore.getItemAsync(CONSENT_KEY)
-      .then((value) => {
-        if (!cancelled) setState(value === 'true' ? 'given' : 'needed');
+    FileSystem.getInfoAsync(CONSENT_FILE)
+      .then((info) => {
+        if (!cancelled) setState(info.exists ? 'given' : 'needed');
       })
       .catch(() => {
-        // If SecureStore itself is unavailable for some reason, fail safe
+        // If the filesystem check itself fails for some reason, fail safe
         // by asking -- never skip the disclosure.
         if (!cancelled) setState('needed');
       });
@@ -36,22 +48,20 @@ export function useEatsConsent() {
   const grant = useCallback(async () => {
     setState('given');
     try {
-      await SecureStore.setItemAsync(CONSENT_KEY, 'true');
+      await FileSystem.writeAsStringAsync(CONSENT_FILE, 'true');
     } catch {
       // ignore -- worst case is being asked again next launch
     }
   }, []);
 
-  // Dev-only escape hatch (see App.tsx's __DEV__-gated reset control): once
-  // granted, this flag lives in the iOS Keychain, which survives an app
-  // delete/reinstall on the same device -- so without this, re-testing the
-  // consent screen means actually wiping the device's Keychain by hand.
-  // Never exposed to a real user; production behavior (ask once, remember
-  // forever) is unchanged.
+  // Dev-only escape hatch (see App.tsx's __DEV__-gated reset control): lets
+  // you re-test the consent screen without deleting/reinstalling the app.
+  // Never exposed to a real user; production behavior (ask once per
+  // install, remember until the app is deleted) is unchanged.
   const reset = useCallback(async () => {
     setState('needed');
     try {
-      await SecureStore.deleteItemAsync(CONSENT_KEY);
+      await FileSystem.deleteAsync(CONSENT_FILE, { idempotent: true });
     } catch {
       // ignore -- state is already 'needed' locally either way
     }

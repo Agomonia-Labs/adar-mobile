@@ -10,6 +10,17 @@ export interface AuthTenantConfig {
   /** Some deployments (see adar-core/ui VITE_API_KEY) require an API key
    *  header. Leave empty string if this product's deployment doesn't use one. */
   apiKey?: string;
+  /** Sent as the `X-Client-App` request header (see adar-rag/backend/
+   *  services/branding.py and adar-rag/ui/eats/src/services/api.js) so
+   *  shared adar-rag-backend deployments send MFA/verification/
+   *  account-deletion emails under THIS app's own brand instead of
+   *  DocIntel's -- the backend falls back to DocIntel's branding when
+   *  this header is absent, which is correct for DocIntel's own web/
+   *  mobile apps but was silently mislabeling every email this mobile
+   *  app's auth flows triggered (reported: OTP emails said "DocIntel"
+   *  for ADAR Eats). Leave unset for adar-core-backed apps (arcl,
+   *  geetabitan, scheduling/frontdesk), which don't read this header. */
+  clientApp?: string;
   /** Matches the backend's DOMAIN env var: 'arcl' | 'geetabitan' | 'scheduling' */
   domain: string;
   /** Shown on the login screen, e.g. "ADAR ARCL" */

@@ -12,10 +12,11 @@ export interface ConsentScreenProps {
  * Required by Apple App Review Guideline 5.1.2(i): apps must clearly
  * disclose, and get explicit permission for, sending personal data to
  * third-party AI. ADAR Eats sends the questions you ask its Menu
- * Assistant, your spoken menu walkthrough if you're a restaurant owner,
- * your voice recordings, and your order feedback to Google's Gemini
- * models to answer, transcribe, and understand them. Payment is handled
- * entirely on Stripe's own page -- ADAR never receives your card details.
+ * Assistant, Dine-In Assistant, and Event Assistant, your spoken menu
+ * walkthrough if you're a restaurant owner, your voice recordings, and
+ * your order feedback to Google's Gemini models to answer, transcribe,
+ * and understand them. Payment is handled entirely on Stripe's own page
+ * -- ADAR never receives your card details.
  * Shown once (see useEatsConsent.ts), gated at the very top of App.tsx's
  * <Gate>, before sign-in/registration -- same pattern as
  * docintel/ConsentScreen.tsx, frontdesk/ConsentScreen.tsx and
@@ -30,10 +31,11 @@ export function ConsentScreen({ onAccept }: ConsentScreenProps) {
 
         <Text style={styles.body}>ADAR Eats uses Google Cloud AI services to work:</Text>
         <Text style={styles.bullet}>
-          {'•'} Questions you ask the Menu Assistant about restaurants, dishes, and prices -- in any of the
+          {'•'} Questions you ask the Menu Assistant, the Dine-In Assistant, or an Event Assistant --
+          about restaurants, dishes, prices, table availability, or event stalls, in any of the
           App&apos;s supported languages -- are sent to Google&apos;s <Text style={styles.bold}>Gemini</Text>{' '}
-          AI models to understand your request and answer it, grounded in the actual restaurant and menu
-          data.
+          AI models to understand your request and answer it, grounded in the actual restaurant, menu, or
+          event data.
         </Text>
         <Text style={styles.bullet}>
           {'•'} If you use the microphone to ask a question, or tap "Listen" to hear a reply, your voice

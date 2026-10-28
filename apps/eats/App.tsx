@@ -26,6 +26,11 @@ import { useEatsConsent } from './src/useEatsConsent';
 const tenant: AuthTenantConfig = {
   apiUrl: 'https://docintel-backend-tzwvc47f5q-uc.a.run.app',
   apiKey: '',
+  // Tells the shared adar-rag backend (see services/branding.py) to brand
+  // MFA/verification/account-deletion emails as ADAR Eats instead of
+  // falling back to its DocIntel default -- without this, every email
+  // this app's sign-in flow triggers arrived labelled "DocIntel".
+  clientApp: 'eats',
   domain: 'restaurant',
   displayName: 'ADAR Eats',
   logoText: 'AE',

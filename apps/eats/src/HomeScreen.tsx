@@ -4,6 +4,7 @@ import {
   FlatList,
   Image,
   Linking,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,7 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@adar/shared-auth';
 import {
   EatsMenuItem,
@@ -19,6 +20,7 @@ import {
   MENU_CATEGORY_ORDER,
   MenuCategoryBucket,
   compareMarketplaceMenu,
+  getRestaurantDetail,
   listMarketplaceRestaurants,
   searchMarketplaceMenu,
   searchMenuAdvanced,
@@ -68,6 +70,11 @@ export function HomeScreen() {
   // conversation as "the main" way diners compare menus/prices, with
   // Discover's structured search/compare kept as a secondary option.
   const [mainTab, setMainTab] = useState<MainTab>('chat');
+  // Tabs moved from a horizontally-scrolling row under the header into a
+  // top-left dropdown menu -- with nine tabs the scrolling row hid most
+  // of them off-screen with no indication there was more to scroll to.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const insets = useSafeAreaInsets();
   // Restaurant-name search is its own box, independent of the menu/dish
   // search below -- it only filters which restaurants show in the list
   // view (client-side, over the already-fetched marketplace list), it
@@ -92,6 +99,15 @@ export function HomeScreen() {
   const [detailItem, setDetailItem] = useState<EatsMenuItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Tapping a restaurant card in the default (non-search) Discover browse
+  // list used to do nothing -- it should open that restaurant's menu. We
+  // fetch its full menu on tap and show it in a dedicated list (separate
+  // from menuResults/showingMenuResults, which is driven by the Menu
+  // search box) with its own back button.
+  const [restaurantMenuFor, setRestaurantMenuFor] = useState<EatsRestaurant | null>(null);
+  const [restaurantMenuItems, setRestaurantMenuItems] = useState<EatsMenuItem[]>([]);
+  const [restaurantMenuLoading, setRestaurantMenuLoading] = useState(false);
+  const [restaurantMenuError, setRestaurantMenuError] = useState<string | null>(null);
   const cart = useCart();
   const { location, radiusMiles, setRadiusMiles } = useEatsLocation();
 
@@ -205,6 +221,43 @@ export function HomeScreen() {
     [cart]
   );
 
+  const openRestaurantMenu = useCallback(
+    async (restaurant: EatsRestaurant) => {
+      setRestaurantMenuFor(restaurant);
+      setRestaurantMenuItems([]);
+      setRestaurantMenuError(null);
+      setRestaurantMenuLoading(true);
+      try {
+        const detail = await getRestaurantDetail(client, accessToken, restaurant.id);
+        // getRestaurantDetail's menu_items come straight from
+        // restaurant_menu_items (no restaurant join), so they're missing
+        // restaurant_name/cuisine_type/address/city/state that EatsMenuItem
+        // requires (and that the cart/detail-modal display) -- fill them in
+        // from the restaurant we already have.
+        const items: EatsMenuItem[] = detail.menu_items.map((mi) => ({
+          ...mi,
+          restaurant_name: restaurant.name,
+          cuisine_type: restaurant.cuisine_type,
+          address: restaurant.address,
+          restaurant_city: restaurant.city,
+          restaurant_state: restaurant.state,
+        }));
+        setRestaurantMenuItems(items);
+      } catch (err) {
+        setRestaurantMenuError('Could not load this restaurant\'s menu. Pull down to try again.');
+      } finally {
+        setRestaurantMenuLoading(false);
+      }
+    },
+    [client, accessToken]
+  );
+
+  const closeRestaurantMenu = useCallback(() => {
+    setRestaurantMenuFor(null);
+    setRestaurantMenuItems([]);
+    setRestaurantMenuError(null);
+  }, []);
+
   const showingMenuResults = menuResults.length > 0 || (query.trim().length > 0 && !loading);
 
   const filteredRestaurants = useMemo(() => {
@@ -213,11 +266,39 @@ export function HomeScreen() {
     return restaurants.filter((r) => r.name.toLowerCase().includes(term));
   }, [restaurants, restaurantQuery]);
 
+  const tabLabel = (t: MainTab) =>
+    t === 'chat'
+      ? 'Chat'
+      : t === 'discover'
+      ? 'Discover'
+      : t === 'dinein'
+      ? 'Dine-In'
+      : t === 'events'
+      ? 'Events'
+      : t === 'cart'
+      ? `Cart${cart.itemCount ? ` (${cart.itemCount})` : ''}`
+      : t === 'orders'
+      ? 'Orders'
+      : t === 'owner'
+      ? 'Owner'
+      : t === 'documents'
+      ? 'Documents'
+      : 'Account';
+
   const header = (
     <View style={styles.header}>
-      <View style={styles.headerBrand}>
-        <Image source={require('../assets/icon.png')} style={styles.headerLogo} />
-        <Text style={styles.headerTitle}>ADAR Eats</Text>
+      <View style={styles.headerLeft}>
+        <TouchableOpacity
+          onPress={() => setMenuOpen(true)}
+          style={styles.menuButton}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={styles.menuButtonText}>{'\u2630'}</Text>
+        </TouchableOpacity>
+        <View style={styles.headerBrand}>
+          <Image source={require('../assets/icon.png')} style={styles.headerLogo} />
+          <Text style={styles.headerTitle}>ADAR Eats</Text>
+        </View>
       </View>
       <View style={styles.headerActions}>
         <NotificationsBell />
@@ -228,20 +309,28 @@ export function HomeScreen() {
     </View>
   );
 
-  const tabRow = (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mainTabScroll} contentContainerStyle={styles.mainTabRow}>
-      {(['chat', 'discover', 'dinein', 'events', 'cart', 'orders', 'owner', 'documents', 'account'] as MainTab[]).map((t) => (
-        <TouchableOpacity
-          key={t}
-          style={[styles.mainTabButton, mainTab === t && styles.mainTabButtonActive]}
-          onPress={() => setMainTab(t)}
-        >
-          <Text style={[styles.mainTabText, mainTab === t && styles.mainTabTextActive]}>
-            {t === 'chat' ? 'Chat' : t === 'discover' ? 'Discover' : t === 'dinein' ? 'Dine-In' : t === 'events' ? 'Events' : t === 'cart' ? `Cart${cart.itemCount ? ` (${cart.itemCount})` : ''}` : t === 'orders' ? 'Orders' : t === 'owner' ? 'Owner' : t === 'documents' ? 'Documents' : 'Account'}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </ScrollView>
+  // Dropdown menu replacing the old horizontally-scrolling tab row --
+  // anchored top-left under the hamburger button, dismissed by tapping
+  // the backdrop or picking a tab.
+  const tabMenu = (
+    <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+      <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={() => setMenuOpen(false)}>
+        <View style={[styles.menuPanel, { top: insets.top + 54 }]}>
+          {(['chat', 'discover', 'dinein', 'events', 'cart', 'orders', 'owner', 'documents', 'account'] as MainTab[]).map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.menuItem, mainTab === t && styles.menuItemActive]}
+              onPress={() => {
+                setMainTab(t);
+                setMenuOpen(false);
+              }}
+            >
+              <Text style={[styles.menuItemText, mainTab === t && styles.menuItemTextActive]}>{tabLabel(t)}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </TouchableOpacity>
+    </Modal>
   );
 
   const footer = (
@@ -257,7 +346,7 @@ export function HomeScreen() {
     return (
       <SafeAreaView style={styles.flex} edges={['top']}>
         {header}
-        {tabRow}
+        {tabMenu}
         {mainTab === 'owner' ? (
           <OwnerDashboardScreen />
         ) : mainTab === 'dinein' ? (
@@ -293,9 +382,20 @@ export function HomeScreen() {
   return (
     <SafeAreaView style={styles.flex} edges={['top', 'bottom']}>
       {header}
-      {tabRow}
+      {tabMenu}
       <LocationPickerBar />
 
+      {restaurantMenuFor && (
+        <View style={styles.restaurantMenuHeader}>
+          <TouchableOpacity onPress={closeRestaurantMenu} style={styles.backButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Text style={styles.backButtonText}>{'\u2039'} Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.restaurantMenuTitle} numberOfLines={1}>{restaurantMenuFor.name}</Text>
+        </View>
+      )}
+
+      {!restaurantMenuFor && (
+      <>
       <View style={styles.searchSection}>
         <TouchableOpacity
           style={styles.searchSectionHeader}
@@ -443,8 +543,10 @@ export function HomeScreen() {
         </View>
       )}
       </View>
+      </>
+      )}
 
-      {showingMenuResults && location && (
+      {!restaurantMenuFor && showingMenuResults && location && (
         <Text style={styles.scopeNote}>
           Showing restaurants within {radiusMiles} mi of {location.label}
           {location.city ? ' (or in the same city)' : ''} --{' '}
@@ -469,7 +571,56 @@ export function HomeScreen() {
 
       {error && <Text style={styles.errorText}>{error}</Text>}
 
-      {loading && restaurants.length === 0 && menuResults.length === 0 ? (
+      {restaurantMenuFor ? (
+        restaurantMenuLoading ? (
+          <ActivityIndicator style={{ marginTop: 40 }} color={BRAND} />
+        ) : (
+          <FlatList
+            style={styles.list}
+            data={restaurantMenuItems}
+            keyExtractor={(item) => item.id}
+            onRefresh={() => openRestaurantMenu(restaurantMenuFor)}
+            refreshing={restaurantMenuLoading}
+            renderItem={({ item }) => (
+              <TouchableOpacity style={styles.card} onPress={() => setDetailItem(item)} activeOpacity={0.7}>
+                <View style={styles.cardContent}>
+                  {item.image_url ? (
+                    <Image source={{ uri: item.image_url }} style={styles.cardThumb} />
+                  ) : (
+                    <View style={[styles.cardThumb, styles.cardThumbPlaceholder]} />
+                  )}
+                  <View style={styles.cardBody}>
+                    <View style={styles.cardRow}>
+                      <Text style={styles.cardTitle}>{item.item_name}</Text>
+                      <Text style={styles.cardPrice}>{formatPrice(item.price, item.currency)}</Text>
+                    </View>
+                    <Text style={styles.cardSubtitle}>
+                      {item.category || 'Menu item'}
+                      {item.availability && item.availability !== 'available' ? ` · ${item.availability}` : ''}
+                    </Text>
+                    {item.description ? <Text style={styles.cardDescription}>{item.description}</Text> : null}
+                    <View style={styles.cardFooter}>
+                      {item.rating_count > 0 ? (
+                        <Text style={styles.cardRating}>
+                          ★ {item.avg_rating?.toFixed(1)} ({item.rating_count} {item.rating_count === 1 ? 'review' : 'reviews'})
+                        </Text>
+                      ) : <View />}
+                      <TouchableOpacity style={styles.addButton} onPress={() => addToCartQuick(item)}>
+                        <Text style={styles.addButtonText}>+ Add</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>
+                {restaurantMenuError || 'This restaurant has no menu items listed yet.'}
+              </Text>
+            }
+          />
+        )
+      ) : loading && restaurants.length === 0 && menuResults.length === 0 ? (
         <ActivityIndicator style={{ marginTop: 40 }} color={BRAND} />
       ) : showingMenuResults ? (
         <FlatList
@@ -478,26 +629,35 @@ export function HomeScreen() {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.card} onPress={() => setDetailItem(item)} activeOpacity={0.7}>
-              <View style={styles.cardRow}>
-                <Text style={styles.cardTitle}>{item.item_name}</Text>
-                <Text style={styles.cardPrice}>{formatPrice(item.price, item.currency)}</Text>
-              </View>
-              <Text style={styles.cardSubtitle}>
-                {item.restaurant_name}
-                {item.cuisine_type ? ` · ${item.cuisine_type}` : ''}
-                {item.category ? ` · ${item.category}` : ''}
-                {item.distance_miles != null ? ` · ${item.distance_miles} mi` : ''}
-              </Text>
-              {item.description ? <Text style={styles.cardDescription}>{item.description}</Text> : null}
-              <View style={styles.cardFooter}>
-                {item.rating_count > 0 ? (
-                  <Text style={styles.cardRating}>
-                    ★ {item.avg_rating?.toFixed(1)} ({item.rating_count} {item.rating_count === 1 ? 'review' : 'reviews'})
+              <View style={styles.cardContent}>
+                {item.image_url ? (
+                  <Image source={{ uri: item.image_url }} style={styles.cardThumb} />
+                ) : (
+                  <View style={[styles.cardThumb, styles.cardThumbPlaceholder]} />
+                )}
+                <View style={styles.cardBody}>
+                  <View style={styles.cardRow}>
+                    <Text style={styles.cardTitle}>{item.item_name}</Text>
+                    <Text style={styles.cardPrice}>{formatPrice(item.price, item.currency)}</Text>
+                  </View>
+                  <Text style={styles.cardSubtitle}>
+                    {item.restaurant_name}
+                    {item.cuisine_type ? ` · ${item.cuisine_type}` : ''}
+                    {item.category ? ` · ${item.category}` : ''}
+                    {item.distance_miles != null ? ` · ${item.distance_miles} mi` : ''}
                   </Text>
-                ) : <View />}
-                <TouchableOpacity style={styles.addButton} onPress={() => addToCartQuick(item)}>
-                  <Text style={styles.addButtonText}>+ Add</Text>
-                </TouchableOpacity>
+                  {item.description ? <Text style={styles.cardDescription}>{item.description}</Text> : null}
+                  <View style={styles.cardFooter}>
+                    {item.rating_count > 0 ? (
+                      <Text style={styles.cardRating}>
+                        ★ {item.avg_rating?.toFixed(1)} ({item.rating_count} {item.rating_count === 1 ? 'review' : 'reviews'})
+                      </Text>
+                    ) : <View />}
+                    <TouchableOpacity style={styles.addButton} onPress={() => addToCartQuick(item)}>
+                      <Text style={styles.addButtonText}>+ Add</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
             </TouchableOpacity>
           )}
@@ -513,7 +673,7 @@ export function HomeScreen() {
           onRefresh={loadRestaurants}
           refreshing={loading}
           renderItem={({ item }) => (
-            <View style={styles.card}>
+            <TouchableOpacity style={styles.card} onPress={() => openRestaurantMenu(item)} activeOpacity={0.7}>
               <Text style={styles.cardTitle}>{item.name}</Text>
               <Text style={styles.cardSubtitle}>
                 {item.cuisine_type || 'Restaurant'} · {item.menu_count} menu {item.menu_count === 1 ? 'item' : 'items'}
@@ -529,7 +689,7 @@ export function HomeScreen() {
                   ★ {item.avg_rating?.toFixed(1)} ({item.rating_count} {item.rating_count === 1 ? 'review' : 'reviews'})
                 </Text>
               )}
-            </View>
+            </TouchableOpacity>
           )}
           ListEmptyComponent={
             !loading ? (
@@ -575,6 +735,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     backgroundColor: BRAND,
   },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  menuButton: { paddingVertical: 2, paddingHorizontal: 2 },
+  menuButtonText: { color: '#fff', fontSize: 22, fontWeight: '700', lineHeight: 24 },
   headerBrand: { flexDirection: 'row', alignItems: 'center' },
   headerLogo: { width: 28, height: 28, borderRadius: 7, marginRight: 8 },
   headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
@@ -590,14 +753,36 @@ const styles = StyleSheet.create({
   },
   footerText: { fontSize: 11, color: '#8a93a3', textAlign: 'center' },
   footerLink: { color: BRAND, fontWeight: '600', marginTop: 2, textDecorationLine: 'underline' },
-  mainTabScroll: { flexGrow: 0 },
-  mainTabRow: { paddingHorizontal: 16, paddingTop: 10, gap: 8 },
-  mainTabButton: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 8, alignItems: 'center', backgroundColor: '#eef1f0' },
-  mainTabButtonActive: { backgroundColor: BRAND },
-  mainTabText: { fontSize: 13, fontWeight: '700', color: '#5b6472' },
-  mainTabTextActive: { color: '#fff' },
+  menuBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
+  menuPanel: {
+    position: 'absolute',
+    left: 16,
+    minWidth: 210,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  menuItem: { paddingVertical: 12, paddingHorizontal: 18 },
+  menuItemActive: { backgroundColor: '#eef1f0' },
+  menuItemText: { fontSize: 15, fontWeight: '600', color: '#14181f' },
+  menuItemTextActive: { color: BRAND },
   searchSection: { paddingBottom: 4 },
   searchSectionDivider: { borderTopWidth: 1, borderTopColor: '#e4e7ec', marginTop: 10, paddingTop: 2 },
+  restaurantMenuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  backButton: { paddingVertical: 4, paddingRight: 12 },
+  backButtonText: { color: BRAND, fontSize: 15, fontWeight: '600' },
+  restaurantMenuTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: '#1a1a1a' },
   searchSectionHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10,
@@ -666,6 +851,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
+  cardContent: { flexDirection: 'row' },
+  cardThumb: { width: 64, height: 64, borderRadius: 10, marginRight: 12, backgroundColor: '#eef1f0' },
+  cardThumbPlaceholder: {},
+  cardBody: { flex: 1 },
   cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   cardTitle: { fontSize: 16, fontWeight: '700', color: '#14181f', flexShrink: 1 },
   cardPrice: { fontSize: 15, fontWeight: '700', color: BRAND },

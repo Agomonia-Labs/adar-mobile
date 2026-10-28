@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // Bump this key's version suffix if the disclosure's substance changes
 // materially (e.g. a new AI processor is added). See ConsentScreen.tsx for

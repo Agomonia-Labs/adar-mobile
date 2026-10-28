@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   Modal,
   SafeAreaView,
   StyleSheet,
@@ -12,6 +13,11 @@ import {
 import type { AxiosInstance } from 'axios';
 import { deleteAccount, extractErrorMessage, useAuth } from '@adar/shared-auth';
 import { ChatScreen } from '@adar/shared-chat';
+
+// Same page ConsentScreen.tsx links to before sign-in -- also reachable
+// here at any time afterwards, from the Profile modal, so the disclosure
+// of what's sent to Google's Gemini models isn't only a one-time gate.
+const PRIVACY_URL = 'https://labs.agomoniai.com/arcl-privacy';
 
 // Same wording/questions as the public guest experience (arcl.js /
 // arcl_guest.py EXAMPLE_QUESTIONS) for consistency between the web's
@@ -177,6 +183,9 @@ function ProfileModal({
               <Text style={styles.profileNameText}>{teamName || 'Signed in'}</Text>
               <TouchableOpacity style={styles.profileRow} onPress={onSignOut}>
                 <Text style={styles.profileRowText}>Sign out</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.profileRow} onPress={() => Linking.openURL(PRIVACY_URL)}>
+                <Text style={styles.profileRowText}>Privacy Policy</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.profileRow} onPress={() => setConfirmOpen(true)}>
                 <Text style={styles.deleteAccountLinkText}>Delete my account</Text>

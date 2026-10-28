@@ -50,6 +50,16 @@
         {
           "locationWhenInUsePermission": "ADAR Eats uses your location to show restaurants and menus near you and to filter dine-in reservations by distance."
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "buildToolsVersion": "36.0.0"
+          }
+        }
       ]
     ],
     "extra": {
@@ -57,6 +67,7 @@
         "projectId": "eb12a68e-0bdf-4c39-ab96-195167665540"
       }
     },
-    "owner": "brajadas"
+    "owner": "brajadas",
+    "newArchEnabled": true
   }
 }

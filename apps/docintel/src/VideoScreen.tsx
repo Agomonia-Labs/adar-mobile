@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@adar/shared-auth';
 import {
@@ -273,7 +273,7 @@ function UploadVideoModal({ visible, workspaceId, onClose, onUploaded }: {
     const result = await DocumentPicker.getDocumentAsync({ type: 'video/*', copyToCacheDirectory: true });
     if (result.canceled || !result.assets?.length) return;
     const file = result.assets[0];
-    const info = file.size ? null : await FileSystem.getInfoAsync(file.uri, { size: true });
+    const info = file.size ? null : await FileSystem.getInfoAsync(file.uri);
     await uploadPickedVideo({
       uri: file.uri,
       name: file.name,
@@ -304,7 +304,7 @@ function UploadVideoModal({ visible, workspaceId, onClose, onUploaded }: {
       setBusy(true);
       setStage('Preparing selected video…');
       const asset = result.assets[0];
-      const info = asset.fileSize ? null : await FileSystem.getInfoAsync(asset.uri, { size: true });
+      const info = asset.fileSize ? null : await FileSystem.getInfoAsync(asset.uri);
       const size = asset.fileSize || (info?.exists ? info.size || 0 : 0);
       if (!size) {
         setBusy(false);
