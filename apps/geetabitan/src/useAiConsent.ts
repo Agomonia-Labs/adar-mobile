@@ -5,7 +5,7 @@ import * as FileSystem from 'expo-file-system';
 // materially (e.g. a new AI processor is added) -- that re-prompts users
 // who already agreed to the older wording, the same way a privacy policy
 // gets a new "last updated" date. See AiConsentScreen.tsx for the actual
-// disclosure text, and adar-web/geetabitan-privacy.html for the full
+// disclosure text, and adar-web/sursankalan-privacy.html for the full
 // policy this summarizes. Required by Apple App Review Guideline 5.1.2(i)
 // (effective Nov 13, 2025): sending personal data to third-party AI needs
 // disclosure and explicit permission *before* it happens -- not just a

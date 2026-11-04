@@ -1,8 +1,8 @@
 import React from 'react';
 import { Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-const PRIVACY_URL = 'https://labs.agomoniai.com/geetabitan-privacy';
-const BRAND = '#7a1f33';
+const PRIVACY_URL = 'https://labs.agomoniai.com/sursankalan-privacy';
+const BRAND = '#8B1A1A';
 
 export interface AiConsentScreenProps {
   onAccept: () => void;
@@ -11,7 +11,7 @@ export interface AiConsentScreenProps {
 /**
  * Required by Apple App Review Guideline 5.1.2(i) (effective Nov 13,
  * 2025): apps must clearly disclose, and get explicit permission for,
- * sending personal data to third-party AI. ADAR Geetabitan sends typed
+ * sending personal data to third-party AI. আদর সুর সংকলন sends typed
  * questions to Google's Gemini model, and -- only if the voice features
  * are used -- recordings to Google Cloud Speech-to-Text and replies to
  * Google Cloud Text-to-Speech. Shown once (see useAiConsent.ts), gated at
@@ -25,7 +25,7 @@ export function AiConsentScreen({ onAccept }: AiConsentScreenProps) {
         <Image source={require('../assets/logo-mark.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.title}>Before you continue</Text>
 
-        <Text style={styles.body}>ADAR Geetabitan uses Google Cloud AI services to work:</Text>
+        <Text style={styles.body}>আদর সুর সংকলন uses Google Cloud AI services to work:</Text>
         <Text style={styles.bullet}>
           {'•'} Questions you type are sent to Google&apos;s <Text style={styles.bold}>Gemini</Text> AI
           model to generate answers.
@@ -40,7 +40,7 @@ export function AiConsentScreen({ onAccept }: AiConsentScreenProps) {
         </Text>
         <Text style={styles.body}>
           Google processes this only to provide these features -- it is not used for advertising. Voice
-          questions are optional; you can use ADAR Geetabitan by typing only.
+          questions are optional; you can use আদর সুর সংকলন by typing only.
         </Text>
 
         <Text style={[styles.title, styles.banglaTitle]}>চালিয়ে যাওয়ার আগে</Text>

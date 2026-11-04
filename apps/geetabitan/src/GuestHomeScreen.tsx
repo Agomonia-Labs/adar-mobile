@@ -7,10 +7,11 @@ import { extractYouTubeVideoUrl, toYouTubeEmbedUrl } from './youtube';
 import { YouTubeMiniPlayer } from './YouTubeMiniPlayer';
 
 const DOMAIN = 'geetabitan';
-const PRIVACY_URL = 'https://labs.agomoniai.com/geetabitan-privacy';
-// Rabindra Sangeet content is overwhelmingly Bengali -- matches
-// adar-core/ui/src/tenant.js's own voice config for this tenant
-// (lang: 'bn-IN'), so guest voice defaults to Bangla STT/TTS too.
+const PRIVACY_URL = 'https://labs.agomoniai.com/sursankalan-privacy';
+// Rabindra Sangeet, Nazrul Geeti, Rajanikanta Sangeet, Atulprasad Sangeet, and
+// Dwijendra Sangeet content is overwhelmingly Bengali -- matches adar-core/ui/src/tenant.js's
+// own voice config for this tenant (lang: 'bn-IN'), so guest voice defaults
+// to Bangla STT/TTS too.
 const VOICE_LANG = 'bn-IN';
 
 // Same example questions adar-core/api/routes/geetabitan_guest.py serves
@@ -19,19 +20,23 @@ const VOICE_LANG = 'bn-IN';
 const GEETABITAN_GUEST_QUESTIONS = [
   'আমার সোনার বাংলা গানটি খুঁজুন',
   'ভৈরবী রাগের গান দেখাও',
-  'দাদরা তালের গান কী কী?',
-  'একলা চলো রে গানের অর্থ কী?',
+  'কারার ঐ লৌহকপাট গানটি খুঁজুন',
+  'বাগিচায় বুলবুলি তুই নজরুলগীতি দেখাও',
+  'রজনীকান্তের সূচনা গানটি খুঁজুন',
+  'অতুলপ্রসাদের গান থেকে কিছু গান দেখাও',
+  'ধনধান্য পুষ্পভরা দ্বিজেন্দ্রলালের গানটি খুঁজুন',
 ];
 
-// Header title next to the logo -- "Ask Adar Geetabitan [something]",
+// Header title next to the logo -- "Ask Adar সুর সংকলন [something]",
 // replacing the earlier English "Ask ADAR Geetabitan".
-const GEETABITAN_HEADER_TITLE = 'আদর গীতবিতানকে জিজ্ঞাসা করুন';
+const GEETABITAN_HEADER_TITLE = 'আদর সুর সংকলনকে জিজ্ঞাসা করুন';
 
 // Verbatim from adar-core/ui/src/tenant.js's own welcome bubble -- same
 // wording the live web Geetabitan experience shows on load.
 const GEETABITAN_WELCOME_MESSAGE =
-  'স্বাগতম! আমি আদর — গীতবিতানের সহায়ক। রবীন্দ্রনাথ ঠাকুরের যেকোনো গান, ' +
-  'রাগ, তাল, পর্যায়, বা গানের অর্থ সম্পর্কে প্রশ্ন করুন।';
+  'স্বাগতম! আমি আদর — সুর সংকলনের সহায়ক। রবীন্দ্রনাথ ঠাকুর, কাজী নজরুল ইসলাম, ' +
+  'রজনীকান্ত সেন, অতুলপ্রসাদ সেন বা দ্বিজেন্দ্রলাল রায়ের যেকোনো গান, রাগ, তাল, পর্যায়/সংকলন, বা গানের ' +
+  'অর্থ সম্পর্কে প্রশ্ন করুন।';
 
 /**
  * The no-login landing experience -- same guest flow ARCL's
@@ -71,10 +76,14 @@ export function GuestHomeScreen() {
       const result = await transcribeGuestSpeech(client, DOMAIN, token, audioBase64, mime, lang);
       return result.text;
     },
-    synthesize: async (text, lang) => {
+    synthesize: async (text, lang, chunkIndex = 0) => {
       const token = await chat.getAccessToken();
-      const result = await synthesizeGuestSpeech(client, DOMAIN, token, text, lang);
-      return result.audio;
+      const result = await synthesizeGuestSpeech(client, DOMAIN, token, text, lang, chunkIndex);
+      return {
+        audio: result.audio,
+        chunkIndex: result.chunk_index ?? chunkIndex,
+        chunkCount: result.chunk_count ?? 1,
+      };
     },
     send: chat.send,
   });
@@ -92,7 +101,6 @@ export function GuestHomeScreen() {
         theme={theme}
         placeholder={GEETABITAN_WELCOME_MESSAGE}
         suggestedQuestions={GEETABITAN_GUEST_QUESTIONS}
-        logo={require('../assets/logo-mark.png')}
         voice={{
           recording: voiceChat.recording,
           busy: voiceChat.busy,
@@ -113,7 +121,7 @@ export function GuestHomeScreen() {
         }
       />
       <View style={styles.footer}>
-        <Text style={styles.footerText}>আদর গীতবিতান দ্বারা পরিচালিত</Text>
+        <Text style={styles.footerText}>আদর সুর সংকলন দ্বারা পরিচালিত</Text>
         <Text style={styles.footerText}>© ২০২৬ Agomonia Labs। সর্বস্বত্ব সংরক্ষিত।</Text>
         <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_URL)}>
           <Text style={[styles.footerText, styles.footerLink]}>গোপনীয়তা নীতি</Text>

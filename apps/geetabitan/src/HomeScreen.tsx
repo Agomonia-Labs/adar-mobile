@@ -7,7 +7,7 @@ import { extractYouTubeVideoUrl, toYouTubeEmbedUrl } from './youtube';
 import { YouTubeMiniPlayer } from './YouTubeMiniPlayer';
 
 const VOICE_LANG = 'bn-IN';
-const PRIVACY_URL = 'https://labs.agomoniai.com/geetabitan-privacy';
+const PRIVACY_URL = 'https://labs.agomoniai.com/sursankalan-privacy';
 
 const GEETABITAN_SUGGESTED_QUESTIONS = [
   'Find a song about rain',
@@ -41,9 +41,13 @@ export function HomeScreen() {
       const result = await transcribeSpeech(client, session?.accessToken || '', audioBase64, mime, lang);
       return result.text;
     },
-    synthesize: async (text, lang) => {
-      const result = await synthesizeSpeech(client, text, lang);
-      return result.audio;
+    synthesize: async (text, lang, chunkIndex = 0) => {
+      const result = await synthesizeSpeech(client, text, lang, chunkIndex);
+      return {
+        audio: result.audio,
+        chunkIndex: result.chunk_index ?? chunkIndex,
+        chunkCount: result.chunk_count ?? 1,
+      };
     },
     send: chat.send,
   });
@@ -87,7 +91,7 @@ export function HomeScreen() {
         <ChatView
           {...chat}
           theme={theme}
-          placeholder="Ask ADAR Geetabitan"
+          placeholder="Ask আদর সুর সংকলন"
           suggestedQuestions={GEETABITAN_SUGGESTED_QUESTIONS}
           voice={{
             recording: voiceChat.recording,

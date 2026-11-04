@@ -25,10 +25,17 @@ export interface ChatResponseBody {
   trace_id?: string | null;
 }
 
-/** Raw shape POST /api/demo/tts returns. Audio is base64-encoded MP3. */
+/** Raw shape POST /api/demo/tts returns. Audio is base64-encoded MP3.
+ *  A long reply's text doesn't always fit in one TTS request (Google's
+ *  text:synthesize endpoint caps input at 5,000 UTF-8 bytes), so the
+ *  backend synthesizes the caller's requested chunk_index and reports how
+ *  many chunks the full text was split into via chunk_count. A caller that
+ *  ignores these two fields still gets chunk 0 exactly as before. */
 export interface TtsResponseBody {
   audio: string;
   cached: boolean;
+  chunk_index?: number;
+  chunk_count?: number;
 }
 
 /** Raw shape POST /api/stt returns. */

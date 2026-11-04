@@ -11,9 +11,9 @@ const tenant: AuthTenantConfig = {
   apiUrl: 'https://api.geetabitan.adar.agomoniai.com',
   apiKey: process.env.EXPO_PUBLIC_GEETABITAN_API_KEY || '',
   domain: 'geetabitan',
-  displayName: 'ADAR Geetabitan',
-  logoText: 'GB',
-  brandColor: '#7a1f33',
+  displayName: 'আদর সুর সংকলন',
+  logoText: 'SS',
+  brandColor: '#8B1A1A',
 };
 
 function Gate() {

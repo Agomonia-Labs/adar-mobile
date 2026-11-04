@@ -1,33 +1,35 @@
 {
   "expo": {
-    "name": "ADAR Geetabitan",
+    "name": "আদর সুর সংকলন",
     "slug": "adar-geetabitan",
     "scheme": "adargeetabitan",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
     "splash": {
-      "backgroundColor": "#7a1f33"
+      "backgroundColor": "#8B1A1A"
     },
     "ios": {
       "bundleIdentifier": "com.agomoniai.adargeetabitan",
       "supportsTablet": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSMicrophoneUsageDescription": "ADAR Geetabitan uses your microphone so you can ask questions by voice instead of typing.",
-        "CFBundleDisplayName": "আদর গীতবিতান"
-      }
+        "NSMicrophoneUsageDescription": "আদর সুর সংকলন uses your microphone so you can ask questions by voice instead of typing.",
+        "CFBundleDisplayName": "আদর সুর সংকলন"
+      },
+      "buildNumber": "1"
     },
     "android": {
       "package": "com.agomoniai.adargeetabitan",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#7a1f33"
+        "backgroundColor": "#8B1A1A"
       },
       "permissions": [
         "RECORD_AUDIO"
-      ]
+      ],
+      "versionCode": 1
     },
     "extra": {
       "eas": {

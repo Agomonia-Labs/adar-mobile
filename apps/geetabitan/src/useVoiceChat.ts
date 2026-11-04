@@ -16,8 +16,15 @@ export interface VoiceChatOptions {
   lang: string;
   /** Uploads a recorded clip and returns the transcript. */
   transcribe: (audioBase64: string, mime: string, lang: string) => Promise<string>;
-  /** Requests spoken audio for a line of text; returns base64-encoded MP3. */
-  synthesize: (text: string, lang: string) => Promise<string>;
+  /** Requests spoken audio for one chunk of a (possibly long) reply.
+   *  chunkIndex defaults to 0 (the first/only chunk); the result reports
+   *  chunkCount so playMessage can keep requesting the rest of a reply
+   *  that didn't fit in a single TTS request and play it back to back. */
+  synthesize: (
+    text: string,
+    lang: string,
+    chunkIndex?: number
+  ) => Promise<{ audio: string; chunkIndex: number; chunkCount: number }>;
   /** Sends the transcribed text into the conversation, same as typing it. */
   send: (text: string) => Promise<void>;
 }
@@ -173,27 +180,21 @@ export function useVoiceChat({ lang, transcribe, synthesize, send }: VoiceChatOp
     }
   }, [recording, startRecording, stopRecordingAndSend]);
 
-  const playMessage = useCallback(
-    async (message: ChatMessage) => {
-      // Tapping the message that's already playing OR still being loaded
-      // (synth/network in flight) stops/cancels it -- same "tap to stop"
-      // behavior as before, just now also reachable during the loading phase.
-      if (playingMessageId === message.id || loadingMessageIdRef.current === message.id) {
-        await stopPlayback();
-        return;
-      }
-      // Stop whatever else is playing or loading, THEN claim this request --
-      // synchronously, before any `await` -- so a rapid second tap (on this
-      // message or another) is guaranteed to see a request id that has
-      // already moved past this one, rather than a race where two calls
-      // both think they're the current request.
-      await stopPlayback();
-      const myRequestId = ++requestIdRef.current;
-      loadingMessageIdRef.current = message.id;
+  // Synthesizes and plays one chunk of a (possibly multi-chunk) reply --
+  // long replies don't always fit in a single TTS request (Google's
+  // text:synthesize endpoint caps input at 5,000 UTF-8 bytes; see
+  // adar-core/api/main.py's demo_tts), so chunkCount can be > 1. When this
+  // chunk finishes and more remain, it automatically fetches and plays the
+  // next one, so a single "Listen" tap reads a long reply all the way
+  // through instead of stopping partway after the first chunk.
+  const playChunk = useCallback(
+    async (message: ChatMessage, chunkIndex: number, myRequestId: number) => {
       setBusy(true);
       setError(null);
       try {
-        const audioBase64 = await withColdStartRetry(() => synthesize(message.text, lang));
+        const { audio: audioBase64, chunkCount } = await withColdStartRetry(() =>
+          synthesize(message.text, lang, chunkIndex)
+        );
         // Superseded (user tapped elsewhere, or stopped) while we were
         // waiting on the network -- discard this stale result instead of
         // starting playback for a tap that's no longer current.
@@ -205,7 +206,7 @@ export function useVoiceChat({ lang, transcribe, synthesize, send }: VoiceChatOp
         // this can look like it "just doesn't do anything" rather than
         // erroring). Writing the bytes to a real file and playing that
         // file:// URI instead sidesteps the bug entirely.
-        const fileUri = `${FileSystem.cacheDirectory}adar-tts-${message.id}-${Date.now()}.mp3`;
+        const fileUri = `${FileSystem.cacheDirectory}adar-tts-${message.id}-${chunkIndex}-${Date.now()}.mp3`;
         await FileSystem.writeAsStringAsync(fileUri, audioBase64, { encoding: FileSystem.EncodingType.Base64 });
         if (requestIdRef.current !== myRequestId) {
           FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
@@ -230,18 +231,57 @@ export function useVoiceChat({ lang, transcribe, synthesize, send }: VoiceChatOp
         loadingMessageIdRef.current = null;
         setPlayingMessageId(message.id);
         sound.setOnPlaybackStatusUpdate((status: AVPlaybackStatus) => {
-          if (status.isLoaded && status.didJustFinish) {
+          if (!status.isLoaded || !status.didJustFinish) return;
+          if (requestIdRef.current !== myRequestId) return; // superseded mid-chunk
+          const nextIndex = chunkIndex + 1;
+          if (nextIndex < chunkCount) {
+            // More of this reply left to read -- unload this chunk's sound
+            // and temp file, then fetch and play the next one, so playback
+            // continues seamlessly without the user tapping Listen again.
+            soundRef.current = null;
+            sound.unloadAsync().catch(() => {});
+            const file = playbackFileRef.current;
+            playbackFileRef.current = null;
+            if (file) FileSystem.deleteAsync(file, { idempotent: true }).catch(() => {});
+            playChunk(message, nextIndex, myRequestId);
+          } else {
             stopPlayback();
           }
         });
       } catch (err) {
         console.error('[geetabitan] voice playback failed:', err);
-        if (requestIdRef.current === myRequestId) setError('Could not play that reply.');
+        if (requestIdRef.current === myRequestId) {
+          setError('Could not play that reply.');
+          await stopPlayback();
+        }
       } finally {
         if (requestIdRef.current === myRequestId) setBusy(false);
       }
     },
-    [lang, playingMessageId, stopPlayback, synthesize]
+    [lang, stopPlayback, synthesize]
+  );
+
+  const playMessage = useCallback(
+    async (message: ChatMessage) => {
+      // Tapping the message that's already playing OR still being loaded
+      // (synth/network in flight) stops/cancels it -- same "tap to stop"
+      // behavior as before, just now also reachable during the loading
+      // phase and at any point across a multi-chunk reply.
+      if (playingMessageId === message.id || loadingMessageIdRef.current === message.id) {
+        await stopPlayback();
+        return;
+      }
+      // Stop whatever else is playing or loading, THEN claim this request --
+      // synchronously, before any `await` -- so a rapid second tap (on this
+      // message or another) is guaranteed to see a request id that has
+      // already moved past this one, rather than a race where two calls
+      // both think they're the current request.
+      await stopPlayback();
+      const myRequestId = ++requestIdRef.current;
+      loadingMessageIdRef.current = message.id;
+      await playChunk(message, 0, myRequestId);
+    },
+    [playingMessageId, stopPlayback, playChunk]
   );
 
   return { recording, busy, playingMessageId, error, toggleRecord, playMessage };

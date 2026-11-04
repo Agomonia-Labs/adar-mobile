@@ -32,9 +32,10 @@ export async function sendChatMessage(
 export async function synthesizeSpeech(
   client: AxiosInstance,
   text: string,
-  lang = 'en-US'
+  lang = 'en-US',
+  chunkIndex = 0
 ): Promise<TtsResponseBody> {
-  const { data } = await client.post<TtsResponseBody>('/api/demo/tts', { text, lang });
+  const { data } = await client.post<TtsResponseBody>('/api/demo/tts', { text, lang, chunk_index: chunkIndex });
   return data;
 }
 
@@ -198,17 +199,24 @@ export async function transcribeGuestSpeech(
   return data;
 }
 
-/** POST /api/{domain}/guest/tts */
+/** POST /api/{domain}/guest/tts
+ *
+ * chunkIndex selects which byte-safe slice of a long reply to synthesize
+ * (see adar-core/api/main.py's demo_tts) -- pass the full, unsliced text
+ * every time and just vary chunkIndex; the backend re-derives the same
+ * chunk boundaries deterministically. Omit it (or pass 0) for the first/
+ * only chunk; the response's chunk_count says how many more there are. */
 export async function synthesizeGuestSpeech(
   client: AxiosInstance,
   domain: string,
   accessToken: string,
   text: string,
-  lang = 'en-US'
+  lang = 'en-US',
+  chunkIndex = 0
 ): Promise<TtsResponseBody> {
   const { data } = await client.post<TtsResponseBody>(
     `/api/${domain}/guest/tts`,
-    { text, lang },
+    { text, lang, chunk_index: chunkIndex },
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
   return data;
