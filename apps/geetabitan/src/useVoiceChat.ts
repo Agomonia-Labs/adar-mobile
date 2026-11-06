@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { Audio, AVPlaybackStatus } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import type { ChatMessage } from '@adar/shared-chat';
 
 // This hook -- and its expo-av / expo-file-system imports -- deliberately

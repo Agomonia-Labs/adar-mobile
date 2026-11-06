@@ -1,10 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Image, Linking, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Image, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAuthTheme, useAuth } from '@adar/shared-auth';
 import { ChatView, synthesizeGuestSpeech, transcribeGuestSpeech, useGuestChat } from '@adar/shared-chat';
 import { useVoiceChat } from './useVoiceChat';
-import { extractYouTubeVideoUrl, toYouTubeEmbedUrl } from './youtube';
-import { YouTubeMiniPlayer } from './YouTubeMiniPlayer';
+import { extractYouTubeVideoUrl } from './youtube';
 
 const DOMAIN = 'geetabitan';
 const PRIVACY_URL = 'https://labs.agomoniai.com/sursankalan-privacy';
@@ -56,18 +56,31 @@ export function GuestHomeScreen() {
   const theme = getAuthTheme(tenant);
   const chat = useGuestChat(client, DOMAIN);
   // A song reply (adar-core/domains/geetabitan/tools/song_tools.py ->
-  // get_youtube_url) links its top YouTube match -- auto-open it here the
+  // get_youtube_url) links its top YouTube match -- auto-open it here, the
   // same way adar-core/ui/src/App.jsx's playYouTubeInsideApp does on web,
   // instead of leaving the user to find and tap the link themselves.
-  const [videoPlayer, setVideoPlayer] = useState<{ url: string; embedUrl: string } | null>(null);
+  //
+  // This used to open an in-app <WebView> mini-player (see
+  // YouTubeMiniPlayer.tsx / toYouTubeEmbedUrl in youtube.ts), but YouTube's
+  // anti-embedding checks in a bare mobile WebView proved too unreliable to
+  // chase: no Referer header -> "Error 153 (video player configuration
+  // error)"; add one -> "Error 152-4 (video unavailable)" instead. This is
+  // a known, still-unresolved class of problem with embedding YouTube in a
+  // plain WebView on both Android and iOS (see
+  // https://github.com/Cap-go/capacitor-youtube-player/issues/49), not
+  // something specific to this app or the SDK 54 upgrade -- the only
+  // documented workaround is hosting your own HTTPS page just to serve as
+  // a valid embed origin, which is real infra for a marginal win over the
+  // one line below. Opening the video in the YouTube app/browser instead
+  // is 100% reliable (same as the player's "Open ↗" button already did)
+  // and uses YouTube's own native playback instead of a WebView's.
   const lastVideoCheckedId = useRef<string | null>(null);
   useEffect(() => {
     const last = chat.messages[chat.messages.length - 1];
     if (!last || last.role !== 'assistant' || last.id === lastVideoCheckedId.current) return;
     lastVideoCheckedId.current = last.id;
     const videoUrl = extractYouTubeVideoUrl(last.text);
-    const embedUrl = videoUrl ? toYouTubeEmbedUrl(videoUrl) : '';
-    if (embedUrl) setVideoPlayer({ url: videoUrl, embedUrl });
+    if (videoUrl) Linking.openURL(videoUrl);
   }, [chat.messages]);
   const voiceChat = useVoiceChat({
     lang: VOICE_LANG,
@@ -109,16 +122,6 @@ export function GuestHomeScreen() {
           playingMessageId: voiceChat.playingMessageId,
           onPlayMessage: voiceChat.playMessage,
         }}
-        videoPlayer={
-          videoPlayer ? (
-            <YouTubeMiniPlayer
-              embedUrl={videoPlayer.embedUrl}
-              url={videoPlayer.url}
-              theme={theme}
-              onClose={() => setVideoPlayer(null)}
-            />
-          ) : undefined
-        }
       />
       <View style={styles.footer}>
         <Text style={styles.footerText}>আদর সুর সংকলন দ্বারা পরিচালিত</Text>
@@ -132,7 +135,14 @@ export function GuestHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  // Android 15+/edge-to-edge (now mandatory at targetSdk 36) ignores the
+  // native <style>'s android:statusBarColor entirely, so the status-bar
+  // inset is painted with whatever's actually behind it -- without an
+  // explicit backgroundColor here, that inset (and the bottom nav-bar
+  // inset) rendered as plain black instead of white, which is what made
+  // the brand-red header text and light-gray footer text unreadable.
+  // Matches the same fix already applied in docintel/eats's screens.
+  container: { flex: 1, backgroundColor: '#fff' },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -140,11 +150,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderBottomWidth: 1,
+    backgroundColor: '#fff',
   },
   brand: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 },
   brandLogo: { width: 34, height: 34, borderRadius: 7, marginRight: 8 },
   brandName: { fontSize: 15, fontWeight: '700', flexShrink: 1 },
-  footer: { alignItems: 'center', paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#e5e7eb' },
+  footer: {
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e5e7eb',
+    backgroundColor: '#fff',
+  },
   footerText: { fontSize: 10.5, color: '#9aa2ad', lineHeight: 14 },
   footerLink: { textDecorationLine: 'underline', marginTop: 2 },
 });

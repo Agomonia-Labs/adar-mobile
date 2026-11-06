@@ -45,9 +45,20 @@ export function YouTubeMiniPlayer({ embedUrl, url, theme, onClose }: YouTubeMini
         </View>
         <View style={styles.playerWrap}>
           <WebView
-            source={{ uri: embedUrl }}
+            // Bare `source={{ uri }}` WebView loads give YouTube's embed
+            // page a null/blank Referer, which YouTube's player rejects
+            // with "Error 153 / Video player configuration error" (seen
+            // on Android after the SDK 54 upgrade -- this didn't surface
+            // in the web app's <iframe> version since a real browser tab
+            // always sends its own page origin as Referer). Setting a
+            // well-formed https Referer header fixes it; the embedded
+            // videos aren't domain-restricted, so youtube.com itself
+            // works fine here. See:
+            // https://github.com/react-native-webview/react-native-webview/issues/3889
+            source={{ uri: embedUrl, headers: { Referer: 'https://www.youtube.com/' } }}
             style={styles.player}
             allowsInlineMediaPlayback
+            allowsFullscreenVideo
             mediaPlaybackRequiresUserAction={false}
             javaScriptEnabled
             domStorageEnabled

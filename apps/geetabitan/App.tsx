@@ -36,7 +36,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider tenant={tenant}>
-        <StatusBar style="light" />
+        <StatusBar style="dark" />
         <Gate />
       </AuthProvider>
     </SafeAreaProvider>

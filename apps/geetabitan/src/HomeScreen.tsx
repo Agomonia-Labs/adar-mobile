@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Linking, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAuthTheme, useAuth } from '@adar/shared-auth';
 import { ChatView, synthesizeSpeech, transcribeSpeech, useChat } from '@adar/shared-chat';
 import { useVoiceChat } from './useVoiceChat';
