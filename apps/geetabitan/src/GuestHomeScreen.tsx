@@ -25,6 +25,7 @@ const GEETABITAN_GUEST_QUESTIONS = [
   'রজনীকান্তের সূচনা গানটি খুঁজুন',
   'অতুলপ্রসাদের গান থেকে কিছু গান দেখাও',
   'ধনধান্য পুষ্পভরা দ্বিজেন্দ্রলালের গানটি খুঁজুন',
+  'বাড়ির কাছে আরশিনগর লালনগীতি গানটি খুঁজুন',
 ];
 
 // Header title next to the logo -- "Ask Adar সুর সংকলন [something]",
@@ -34,9 +35,8 @@ const GEETABITAN_HEADER_TITLE = 'আদর সুর সংকলনকে জ�
 // Verbatim from adar-core/ui/src/tenant.js's own welcome bubble -- same
 // wording the live web Geetabitan experience shows on load.
 const GEETABITAN_WELCOME_MESSAGE =
-  'স্বাগতম! আমি আদর — সুর সংকলনের সহায়ক। রবীন্দ্রনাথ ঠাকুর, কাজী নজরুল ইসলাম, ' +
-  'রজনীকান্ত সেন, অতুলপ্রসাদ সেন বা দ্বিজেন্দ্রলাল রায়ের যেকোনো গান, রাগ, তাল, পর্যায়/সংকলন, বা গানের ' +
-  'অর্থ সম্পর্কে প্রশ্ন করুন।';
+  'স্বাগতম! আমি আদর — সুর সংকলনের সহায়ক। পঞ্চ কবি বা লালন ফকিরের বাউল গান, রাগ, তাল, ' +
+  'পর্যায়/সংকলন বা ভাব, বা গানের অর্থ সম্পর্কে প্রশ্ন করুন।';
 
 /**
  * The no-login landing experience -- same guest flow ARCL's
